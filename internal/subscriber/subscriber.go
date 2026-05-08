@@ -75,11 +75,11 @@ type Incident struct {
 // IncidentSubState tracks per-(incident, subscription) delivery state used
 // by the dispatcher to enforce dwell/dedup/repeat semantics.
 type IncidentSubState struct {
-	IncidentID       string    `json:"incident_id"`
-	SubscriptionID   string    `json:"subscription_id"`
-	LastNotifiedAt   time.Time `json:"last_notified_at,omitempty"`
-	NotifyCount      int       `json:"notify_count"`
-	ResolutionSent   bool      `json:"resolution_sent"`
+	IncidentID     string    `json:"incident_id"`
+	SubscriptionID string    `json:"subscription_id"`
+	LastNotifiedAt time.Time `json:"last_notified_at,omitempty"`
+	NotifyCount    int       `json:"notify_count"`
+	ResolutionSent bool      `json:"resolution_sent"`
 }
 
 // NotificationKind classifies a queued or sent notification.

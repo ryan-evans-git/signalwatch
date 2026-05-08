@@ -36,7 +36,6 @@ func (i *Input) Name() string { return "scrape" }
 
 func (i *Input) Start(ctx context.Context, sink chan<- input.EvaluationRecord) error {
 	for _, t := range i.targets {
-		t := t
 		if t.Interval <= 0 {
 			t.Interval = 30 * time.Second
 		}

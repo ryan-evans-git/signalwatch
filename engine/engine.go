@@ -154,7 +154,6 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// Inputs.
 	for _, in := range e.opts.Inputs {
-		in := in
 		e.wg.Add(1)
 		go func() {
 			defer e.wg.Done()

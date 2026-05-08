@@ -114,8 +114,6 @@ func (s *Store) IncidentSubStates() store.IncidentSubStateRepo {
 
 // ----- helpers -----
 
-func nowMS() int64 { return time.Now().UnixMilli() }
-
 func mustJSON(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {

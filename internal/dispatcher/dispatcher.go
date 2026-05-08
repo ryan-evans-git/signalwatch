@@ -124,6 +124,13 @@ func (d *Dispatcher) Tick(ctx context.Context, r *rule.Rule, triggered bool, val
 	return nil
 }
 
+// evaluateSubscription is the per-subscription state machine that decides
+// whether to deliver a notification on this evaluation. Splitting the
+// resolution and firing branches into helpers would scatter the
+// dwell/dedup/repeat logic and obscure the state-machine shape, so the
+// gocyclo cap is intentionally relaxed for this function only.
+//
+//nolint:gocyclo
 func (d *Dispatcher) evaluateSubscription(
 	ctx context.Context,
 	r *rule.Rule,

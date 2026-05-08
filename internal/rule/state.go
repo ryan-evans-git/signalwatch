@@ -6,13 +6,13 @@ import "time"
 // current LiveState. The dispatcher consumes Transitions to decide whether
 // to notify subscribers.
 type Transition struct {
-	RuleID       string
-	Prev         State
-	Next         State
-	Now          time.Time
-	TriggeredAt  time.Time // start of the current firing cycle (zero if !FIRING)
-	IncidentID   string    // assigned by the caller when Prev==OK and Next==FIRING
-	LastValue    string
+	RuleID      string
+	Prev        State
+	Next        State
+	Now         time.Time
+	TriggeredAt time.Time // start of the current firing cycle (zero if !FIRING)
+	IncidentID  string    // assigned by the caller when Prev==OK and Next==FIRING
+	LastValue   string
 }
 
 // Apply mutates state based on the latest evaluation outcome.

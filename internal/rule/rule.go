@@ -83,11 +83,11 @@ const (
 // LiveState is the current evaluation state of a rule. It is updated after
 // every evaluation and persisted to the store.
 type LiveState struct {
-	RuleID       string    `json:"rule_id"`
-	State        State     `json:"state"`
-	TriggeredAt  time.Time `json:"triggered_at,omitempty"`
-	LastEvalAt   time.Time `json:"last_eval_at,omitempty"`
-	LastValue    string    `json:"last_value,omitempty"`
-	LastError    string    `json:"last_error,omitempty"`
-	IncidentID   string    `json:"incident_id,omitempty"`
+	RuleID      string    `json:"rule_id"`
+	State       State     `json:"state"`
+	TriggeredAt time.Time `json:"triggered_at,omitempty"`
+	LastEvalAt  time.Time `json:"last_eval_at,omitempty"`
+	LastValue   string    `json:"last_value,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
+	IncidentID  string    `json:"incident_id,omitempty"`
 }
