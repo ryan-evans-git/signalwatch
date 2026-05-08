@@ -18,9 +18,11 @@ permissions:
 
 env:
   # Security/license/binary-build jobs run against latest stable Go so
-  # govulncheck sees stdlib fixes. The matrix coverage job below tests
-  # against the floor (1.24.x) AND latest (1.25.x) explicitly.
-  GO_VERSION: "1.25.x"
+  # govulncheck sees stdlib fixes. `stable` resolves to the newest
+  # released minor (currently 1.26.x) which has all 1.25.10 std-lib
+  # fixes folded in. The matrix coverage job below tests against the
+  # floor (1.24.x) AND latest (1.25.x) explicitly.
+  GO_VERSION: "stable"
   NODE_VERSION: "22"
 
 jobs:
@@ -48,9 +50,14 @@ jobs:
         # Source of truth for style + most static checks. Configured via
         # .golangci.yml. Pin the action by SHA, not by floating tag —
         # Dependabot rotates these automatically.
-        uses: golangci/golangci-lint-action@7119f3d5ddced62a10a044847a6c6bb0f7a5e76a # v7.0.0
+        #
+        # Action v7+ dropped support for golangci-lint v1; migrating to
+        # v2 requires a config-schema rewrite. Stay on action v6.5.2 +
+        # lint v1.64.8 (last v1) until the v2 migration lands as its
+        # own change.
+        uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
         with:
-          version: v1.62.2
+          version: v1.64.8
           args: --timeout=5m
 
       - name: Build
