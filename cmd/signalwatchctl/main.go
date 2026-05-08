@@ -4,16 +4,16 @@
 //
 // Usage:
 //
-//   signalwatchctl rules list
-//   signalwatchctl rules show <id>
-//   signalwatchctl rules create < rule.json
-//   signalwatchctl rules delete <id>
-//   signalwatchctl subscribers list
-//   signalwatchctl subscriptions list
-//   signalwatchctl incidents list
-//   signalwatchctl notifications list
-//   signalwatchctl states
-//   signalwatchctl emit '{"input_ref":"events","record":{"level":"ERROR"}}'
+//	signalwatchctl rules list
+//	signalwatchctl rules show <id>
+//	signalwatchctl rules create < rule.json
+//	signalwatchctl rules delete <id>
+//	signalwatchctl subscribers list
+//	signalwatchctl subscriptions list
+//	signalwatchctl incidents list
+//	signalwatchctl notifications list
+//	signalwatchctl states
+//	signalwatchctl emit '{"input_ref":"events","record":{"level":"ERROR"}}'
 package main
 
 import (
@@ -129,10 +129,10 @@ func crud(addr, base string, args []string) error {
 	}
 }
 
-func doGet(addr, path string) error    { return doReq(http.MethodGet, addr+path, nil) }
-func doPost(addr, path string, b []byte) error  { return doReq(http.MethodPost, addr+path, b) }
-func doPut(addr, path string, b []byte) error   { return doReq(http.MethodPut, addr+path, b) }
-func doDelete(addr, path string) error { return doReq(http.MethodDelete, addr+path, nil) }
+func doGet(addr, path string) error            { return doReq(http.MethodGet, addr+path, nil) }
+func doPost(addr, path string, b []byte) error { return doReq(http.MethodPost, addr+path, b) }
+func doPut(addr, path string, b []byte) error  { return doReq(http.MethodPut, addr+path, b) }
+func doDelete(addr, path string) error         { return doReq(http.MethodDelete, addr+path, nil) }
 
 func doReq(method, url string, body []byte) error {
 	var rd io.Reader

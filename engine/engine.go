@@ -59,13 +59,13 @@ type Options struct {
 
 // Engine ties the store, evaluator, dispatcher, and inputs together.
 type Engine struct {
-	opts        Options
-	cache       *eval.Cache
-	dispatcher  *dispatcher.Dispatcher
-	pushEval    *eval.PushEvaluator
-	scheduled   *eval.ScheduledEvaluator
-	helpers     *eval.WindowBuffers
-	logger      *slog.Logger
+	opts       Options
+	cache      *eval.Cache
+	dispatcher *dispatcher.Dispatcher
+	pushEval   *eval.PushEvaluator
+	scheduled  *eval.ScheduledEvaluator
+	helpers    *eval.WindowBuffers
+	logger     *slog.Logger
 
 	mu      sync.Mutex
 	started bool

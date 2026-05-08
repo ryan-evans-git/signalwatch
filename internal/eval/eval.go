@@ -79,10 +79,10 @@ func (c *Cache) Scheduled() []*CompiledRule {
 // PushEvaluator runs in a goroutine that consumes records from inputs and
 // evaluates push-mode rules.
 type PushEvaluator struct {
-	cache    *Cache
-	disp     *dispatcher.Dispatcher
-	helpers  *WindowBuffers
-	logger   *slog.Logger
+	cache   *Cache
+	disp    *dispatcher.Dispatcher
+	helpers *WindowBuffers
+	logger  *slog.Logger
 }
 
 func NewPushEvaluator(cache *Cache, disp *dispatcher.Dispatcher, helpers *WindowBuffers, logger *slog.Logger) *PushEvaluator {

@@ -237,16 +237,16 @@ func (d *Dispatcher) deliver(
 		}
 
 		n := channel.Notification{
-			IncidentID:     incidentID,
-			RuleID:         r.ID,
-			RuleName:       r.Name,
-			Severity:       string(r.Severity),
-			Description:    r.Description,
-			Value:          value,
-			Kind:           string(kind),
-			Address:        binding.Address,
-			Now:            now,
-			TriggeredAt:    now, // dispatcher only knows "now"; live state has full incident times if the channel needs them
+			IncidentID:  incidentID,
+			RuleID:      r.ID,
+			RuleName:    r.Name,
+			Severity:    string(r.Severity),
+			Description: r.Description,
+			Value:       value,
+			Kind:        string(kind),
+			Address:     binding.Address,
+			Now:         now,
+			TriggeredAt: now, // dispatcher only knows "now"; live state has full incident times if the channel needs them
 		}
 
 		audit := &subscriber.Notification{

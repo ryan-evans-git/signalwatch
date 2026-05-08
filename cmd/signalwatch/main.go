@@ -40,9 +40,9 @@ type config struct {
 		DSN    string `yaml:"dsn"`
 	} `yaml:"store"`
 	Channels []struct {
-		Name    string `yaml:"name"`
-		Type    string `yaml:"type"`
-		SMTP    *struct {
+		Name string `yaml:"name"`
+		Type string `yaml:"type"`
+		SMTP *struct {
 			Host     string `yaml:"host"`
 			Port     int    `yaml:"port"`
 			Username string `yaml:"username"`

@@ -109,11 +109,11 @@ func TestEngine_EndToEnd_PushEvent(t *testing.T) {
 	}
 	mustPostJSON(t, srv.URL+"/v1/subscribers", sub)
 	mustPostJSON(t, srv.URL+"/v1/subscriptions", map[string]any{
-		"subscriber_id":            sub.ID,
-		"rule_id":                  ruleID(t, eng),
-		"dwell_seconds":            0,
-		"repeat_interval_seconds":  0,
-		"notify_on_resolve":        true,
+		"subscriber_id":           sub.ID,
+		"rule_id":                 ruleID(t, eng),
+		"dwell_seconds":           0,
+		"repeat_interval_seconds": 0,
+		"notify_on_resolve":       true,
 	})
 
 	// Push 3 ERROR events back-to-back — expect 1 firing notification.

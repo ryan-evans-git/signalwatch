@@ -16,7 +16,7 @@ import (
 
 // Target describes a single scrape endpoint.
 type Target struct {
-	Name     string        // becomes the input ref
+	Name     string // becomes the input ref
 	URL      string
 	Interval time.Duration
 	Field    string // top-level JSON key whose numeric value becomes record["value"]

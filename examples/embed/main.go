@@ -3,7 +3,7 @@
 // This is the same engine the standalone service uses, just driven directly
 // from your code. Run with:
 //
-//   go run ./examples/embed
+//	go run ./examples/embed
 package main
 
 import (

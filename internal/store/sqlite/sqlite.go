@@ -102,12 +102,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) Rules() store.RuleRepo                       { return &ruleRepo{db: s.db} }
-func (s *Store) Subscribers() store.SubscriberRepo           { return &subscriberRepo{db: s.db} }
-func (s *Store) Subscriptions() store.SubscriptionRepo       { return &subscriptionRepo{db: s.db} }
-func (s *Store) Incidents() store.IncidentRepo               { return &incidentRepo{db: s.db} }
-func (s *Store) Notifications() store.NotificationRepo       { return &notificationRepo{db: s.db} }
-func (s *Store) LiveStates() store.LiveStateRepo             { return &liveStateRepo{db: s.db} }
+func (s *Store) Rules() store.RuleRepo                 { return &ruleRepo{db: s.db} }
+func (s *Store) Subscribers() store.SubscriberRepo     { return &subscriberRepo{db: s.db} }
+func (s *Store) Subscriptions() store.SubscriptionRepo { return &subscriptionRepo{db: s.db} }
+func (s *Store) Incidents() store.IncidentRepo         { return &incidentRepo{db: s.db} }
+func (s *Store) Notifications() store.NotificationRepo { return &notificationRepo{db: s.db} }
+func (s *Store) LiveStates() store.LiveStateRepo       { return &liveStateRepo{db: s.db} }
 func (s *Store) IncidentSubStates() store.IncidentSubStateRepo {
 	return &incidentSubStateRepo{db: s.db}
 }
@@ -296,7 +296,7 @@ func (r *subscriberRepo) List(ctx context.Context) ([]*subscriber.Subscriber, er
 
 func scanSubscriber(row rowScanner) (*subscriber.Subscriber, error) {
 	var (
-		id, name, channels string
+		id, name, channels   string
 		createdMS, updatedMS int64
 	)
 	if err := row.Scan(&id, &name, &channels, &createdMS, &updatedMS); err != nil {
@@ -566,8 +566,8 @@ func scanNotifications(rows *sql.Rows) ([]*subscriber.Notification, error) {
 	for rows.Next() {
 		var (
 			id, incID, subID, subscriberID, channel, address, kind, status string
-			errStr                                                          sql.NullString
-			sentMS                                                          int64
+			errStr                                                         sql.NullString
+			sentMS                                                         int64
 		)
 		if err := rows.Scan(&id, &incID, &subID, &subscriberID, &channel, &address, &kind, &sentMS, &status, &errStr); err != nil {
 			return nil, err
@@ -592,8 +592,8 @@ type liveStateRepo struct{ db *sql.DB }
 func (r *liveStateRepo) Get(ctx context.Context, ruleID string) (*rule.LiveState, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT rule_id, state, triggered_at, last_eval_at, last_value, last_error, incident_id FROM live_states WHERE rule_id = ?`, ruleID)
 	var (
-		id, state, lv, le string
-		incID             sql.NullString
+		id, state, lv, le   string
+		incID               sql.NullString
 		triggeredMS, evalMS int64
 	)
 	if err := row.Scan(&id, &state, &triggeredMS, &evalMS, &lv, &le, &incID); err != nil {
@@ -648,8 +648,8 @@ func (r *liveStateRepo) List(ctx context.Context) ([]*rule.LiveState, error) {
 	var out []*rule.LiveState
 	for rows.Next() {
 		var (
-			id, state, lv, le string
-			incID             sql.NullString
+			id, state, lv, le   string
+			incID               sql.NullString
 			triggeredMS, evalMS int64
 		)
 		if err := rows.Scan(&id, &state, &triggeredMS, &evalMS, &lv, &le, &incID); err != nil {
@@ -723,8 +723,8 @@ func (r *incidentSubStateRepo) ListForIncident(ctx context.Context, incidentID s
 	var out []*subscriber.IncidentSubState
 	for rows.Next() {
 		var (
-			incID, subID string
-			lastMS       int64
+			incID, subID    string
+			lastMS          int64
 			count, resolved int
 		)
 		if err := rows.Scan(&incID, &subID, &lastMS, &count, &resolved); err != nil {
@@ -739,7 +739,12 @@ func (r *incidentSubStateRepo) ListForIncident(ctx context.Context, incidentID s
 	return out, rows.Err()
 }
 
-func boolInt(b bool) int { if b { return 1 }; return 0 }
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 func nullable(s string) any {
 	if s == "" {
