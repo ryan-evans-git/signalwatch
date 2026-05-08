@@ -18,7 +18,7 @@ permissions:
 
 env:
   GO_VERSION: "1.24.x"
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
 
 jobs:
   lint-test-cover:
@@ -45,7 +45,7 @@ jobs:
         # Source of truth for style + most static checks. Configured via
         # .golangci.yml. Pin the action by SHA, not by floating tag —
         # Dependabot rotates these automatically.
-        uses: golangci/golangci-lint-action@1481404843c368bc19ca9406f87d6e0fc97bdcfd # v7.0.0
+        uses: golangci/golangci-lint-action@7119f3d5ddced62a10a044847a6c6bb0f7a5e76a # v7.0.0
         with:
           version: v1.62.2
           args: --timeout=5m
@@ -87,7 +87,7 @@ jobs:
         # medium` matches the bandit `-ll` posture used by the reference
         # template. Tests are excluded; assert / temp-file patterns
         # produce noise without security signal.
-        uses: securego/gosec@9325cf0e15a1a9ddd964b5df54bf80aab7ce4a1c # v2.22.0
+        uses: securego/gosec@5d1a18b12ab7a9858baf9b7cffa903028792ed17 # v2.22.0
         with:
           args: -severity medium -exclude-dir=examples -exclude-dir=web -exclude=G104 ./...
 
