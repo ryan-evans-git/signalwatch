@@ -1,0 +1,18 @@
+# Code ownership. PRs that touch a path must be approved by an owner of
+# that path. The default owner is the repository owner.
+
+*               @ryan-evans-git
+
+# High-risk subsystems — keep these tightly owned even as the contributor
+# pool grows. Add reviewers here, don't replace the default.
+/engine/                @ryan-evans-git
+/internal/dispatcher/   @ryan-evans-git
+/internal/store/        @ryan-evans-git
+
+# Process artifacts — changes here are policy changes.
+/.github/               @ryan-evans-git
+/SECURITY.md            @ryan-evans-git
+/CONTRIBUTING.md        @ryan-evans-git
+/docs/PI-PLAN.md        @ryan-evans-git
+/docs/ROADMAP.md        @ryan-evans-git
+/docs/BRANCH-PROTECTION.md  @ryan-evans-git

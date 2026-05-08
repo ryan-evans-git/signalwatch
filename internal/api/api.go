@@ -1,0 +1,475 @@
+// Package api exposes the HTTP API for the signalwatch service. The API
+// covers full CRUD for rules, subscribers, and subscriptions; read-only
+// access to incidents, notifications, and live state; and an event ingest
+// endpoint that forwards into the engine.
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/ryan-evans-git/signalwatch/engine"
+	"github.com/ryan-evans-git/signalwatch/internal/rule"
+	"github.com/ryan-evans-git/signalwatch/internal/subscriber"
+)
+
+// Mount registers handlers on the given mux. Pass an embedded UI handler
+// (or nil) to mount the SPA at "/".
+func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler) {
+	h := &handlers{eng: eng}
+
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("POST /v1/events", h.postEvent)
+
+	mux.HandleFunc("GET /v1/rules", h.listRules)
+	mux.HandleFunc("POST /v1/rules", h.createRule)
+	mux.HandleFunc("GET /v1/rules/{id}", h.getRule)
+	mux.HandleFunc("PUT /v1/rules/{id}", h.updateRule)
+	mux.HandleFunc("DELETE /v1/rules/{id}", h.deleteRule)
+
+	mux.HandleFunc("GET /v1/subscribers", h.listSubscribers)
+	mux.HandleFunc("POST /v1/subscribers", h.createSubscriber)
+	mux.HandleFunc("GET /v1/subscribers/{id}", h.getSubscriber)
+	mux.HandleFunc("PUT /v1/subscribers/{id}", h.updateSubscriber)
+	mux.HandleFunc("DELETE /v1/subscribers/{id}", h.deleteSubscriber)
+
+	mux.HandleFunc("GET /v1/subscriptions", h.listSubscriptions)
+	mux.HandleFunc("POST /v1/subscriptions", h.createSubscription)
+	mux.HandleFunc("GET /v1/subscriptions/{id}", h.getSubscription)
+	mux.HandleFunc("PUT /v1/subscriptions/{id}", h.updateSubscription)
+	mux.HandleFunc("DELETE /v1/subscriptions/{id}", h.deleteSubscription)
+
+	mux.HandleFunc("GET /v1/incidents", h.listIncidents)
+	mux.HandleFunc("GET /v1/incidents/{id}", h.getIncident)
+	mux.HandleFunc("GET /v1/notifications", h.listNotifications)
+	mux.HandleFunc("GET /v1/states", h.listStates)
+
+	if ui != nil {
+		mux.Handle("/", ui)
+	}
+}
+
+type handlers struct {
+	eng *engine.Engine
+}
+
+// ---- helpers ----
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func decodeJSON(r *http.Request, v any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
+}
+
+// ---- events ----
+
+type eventPayload struct {
+	InputRef string      `json:"input_ref"`
+	Record   rule.Record `json:"record"`
+}
+
+func (h *handlers) postEvent(w http.ResponseWriter, r *http.Request) {
+	var p eventPayload
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if p.Record == nil {
+		writeError(w, http.StatusBadRequest, errors.New("record is required"))
+		return
+	}
+	if err := h.eng.Submit(r.Context(), p.InputRef, p.Record); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// ---- rules ----
+
+// rulePayload is the wire form of a rule. The condition field uses the
+// discriminated form {type:..., spec:...} that internal/rule supports.
+type rulePayload struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Enabled     bool              `json:"enabled"`
+	Severity    rule.Severity     `json:"severity"`
+	Labels      map[string]string `json:"labels"`
+	InputRef    string            `json:"input_ref"`
+	Condition   json.RawMessage   `json:"condition"`
+	ScheduleSec float64           `json:"schedule_seconds,omitempty"`
+}
+
+func (p *rulePayload) toRule() (*rule.Rule, error) {
+	cond, err := rule.UnmarshalCondition(p.Condition)
+	if err != nil {
+		return nil, fmt.Errorf("condition: %w", err)
+	}
+	r := &rule.Rule{
+		ID:          p.ID,
+		Name:        p.Name,
+		Description: p.Description,
+		Enabled:     p.Enabled,
+		Severity:    p.Severity,
+		Labels:      p.Labels,
+		InputRef:    p.InputRef,
+		Condition:   cond,
+		Schedule:    time.Duration(p.ScheduleSec * float64(time.Second)),
+	}
+	if r.ID == "" {
+		r.ID = uuid.NewString()
+	}
+	if r.Severity == "" {
+		r.Severity = rule.SeverityInfo
+	}
+	return r, nil
+}
+
+func ruleToPayload(r *rule.Rule) rulePayload {
+	condJSON, _ := r.Condition.MarshalCondition()
+	return rulePayload{
+		ID:          r.ID,
+		Name:        r.Name,
+		Description: r.Description,
+		Enabled:     r.Enabled,
+		Severity:    r.Severity,
+		Labels:      r.Labels,
+		InputRef:    r.InputRef,
+		Condition:   condJSON,
+		ScheduleSec: r.Schedule.Seconds(),
+	}
+}
+
+func (h *handlers) listRules(w http.ResponseWriter, r *http.Request) {
+	rules, err := h.eng.Rules().List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	out := make([]rulePayload, 0, len(rules))
+	for _, x := range rules {
+		out = append(out, ruleToPayload(x))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *handlers) createRule(w http.ResponseWriter, r *http.Request) {
+	var p rulePayload
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := p.toRule()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.eng.Rules().Create(r.Context(), rec); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, ruleToPayload(rec))
+}
+
+func (h *handlers) getRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rec, err := h.eng.Rules().Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if rec == nil {
+		writeError(w, http.StatusNotFound, errors.New("rule not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, ruleToPayload(rec))
+}
+
+func (h *handlers) updateRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var p rulePayload
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p.ID = id
+	rec, err := p.toRule()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.eng.Rules().Update(r.Context(), rec); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ruleToPayload(rec))
+}
+
+func (h *handlers) deleteRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.eng.Rules().Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- subscribers ----
+
+func (h *handlers) listSubscribers(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.eng.Subscribers().List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (h *handlers) createSubscriber(w http.ResponseWriter, r *http.Request) {
+	var s subscriber.Subscriber
+	if err := decodeJSON(r, &s); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if s.ID == "" {
+		s.ID = uuid.NewString()
+	}
+	if err := h.eng.Subscribers().Create(r.Context(), &s); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, s)
+}
+
+func (h *handlers) getSubscriber(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s, err := h.eng.Subscribers().Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if s == nil {
+		writeError(w, http.StatusNotFound, errors.New("subscriber not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
+}
+
+func (h *handlers) updateSubscriber(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var s subscriber.Subscriber
+	if err := decodeJSON(r, &s); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.ID = id
+	if err := h.eng.Subscribers().Update(r.Context(), &s); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
+}
+
+func (h *handlers) deleteSubscriber(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.eng.Subscribers().Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- subscriptions ----
+
+// subscriptionPayload accepts dwell/repeat as seconds for friendlier API
+// ergonomics; the internal struct holds them as time.Duration.
+type subscriptionPayload struct {
+	ID                string            `json:"id"`
+	SubscriberID      string            `json:"subscriber_id"`
+	RuleID            string            `json:"rule_id,omitempty"`
+	LabelSelector     map[string]string `json:"label_selector,omitempty"`
+	DwellSec          float64           `json:"dwell_seconds"`
+	RepeatIntervalSec float64           `json:"repeat_interval_seconds"`
+	NotifyOnResolve   bool              `json:"notify_on_resolve"`
+	ChannelFilter     []string          `json:"channel_filter,omitempty"`
+}
+
+func (p *subscriptionPayload) toSubscription() *subscriber.Subscription {
+	s := &subscriber.Subscription{
+		ID:              p.ID,
+		SubscriberID:    p.SubscriberID,
+		RuleID:          p.RuleID,
+		LabelSelector:   p.LabelSelector,
+		Dwell:           time.Duration(p.DwellSec * float64(time.Second)),
+		RepeatInterval:  time.Duration(p.RepeatIntervalSec * float64(time.Second)),
+		NotifyOnResolve: p.NotifyOnResolve,
+		ChannelFilter:   p.ChannelFilter,
+	}
+	if s.ID == "" {
+		s.ID = uuid.NewString()
+	}
+	return s
+}
+
+func subscriptionToPayload(s *subscriber.Subscription) subscriptionPayload {
+	return subscriptionPayload{
+		ID:                s.ID,
+		SubscriberID:      s.SubscriberID,
+		RuleID:            s.RuleID,
+		LabelSelector:     s.LabelSelector,
+		DwellSec:          s.Dwell.Seconds(),
+		RepeatIntervalSec: s.RepeatInterval.Seconds(),
+		NotifyOnResolve:   s.NotifyOnResolve,
+		ChannelFilter:     s.ChannelFilter,
+	}
+}
+
+func (h *handlers) listSubscriptions(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.eng.Subscriptions().List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	out := make([]subscriptionPayload, 0, len(rows))
+	for _, s := range rows {
+		out = append(out, subscriptionToPayload(s))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *handlers) createSubscription(w http.ResponseWriter, r *http.Request) {
+	var p subscriptionPayload
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s := p.toSubscription()
+	if err := s.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.eng.Subscriptions().Create(r.Context(), s); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, subscriptionToPayload(s))
+}
+
+func (h *handlers) getSubscription(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s, err := h.eng.Subscriptions().Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if s == nil {
+		writeError(w, http.StatusNotFound, errors.New("subscription not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, subscriptionToPayload(s))
+}
+
+func (h *handlers) updateSubscription(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var p subscriptionPayload
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p.ID = id
+	s := p.toSubscription()
+	if err := s.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.eng.Subscriptions().Update(r.Context(), s); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, subscriptionToPayload(s))
+}
+
+func (h *handlers) deleteSubscription(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.eng.Subscriptions().Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- read-only ----
+
+func parseLimit(r *http.Request) int {
+	q := r.URL.Query().Get("limit")
+	if q == "" {
+		return 100
+	}
+	n, err := strconv.Atoi(q)
+	if err != nil || n <= 0 {
+		return 100
+	}
+	if n > 1000 {
+		n = 1000
+	}
+	return n
+}
+
+func (h *handlers) listIncidents(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.eng.Incidents().List(r.Context(), parseLimit(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (h *handlers) getIncident(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	inc, err := h.eng.Incidents().Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if inc == nil {
+		writeError(w, http.StatusNotFound, errors.New("incident not found"))
+		return
+	}
+	notes, _ := h.eng.Notifications().ListForIncident(r.Context(), id)
+	writeJSON(w, http.StatusOK, map[string]any{"incident": inc, "notifications": notes})
+}
+
+func (h *handlers) listNotifications(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.eng.Notifications().List(r.Context(), parseLimit(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (h *handlers) listStates(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.eng.LiveStates().List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}

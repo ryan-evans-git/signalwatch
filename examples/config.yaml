@@ -1,0 +1,38 @@
+# Example signalwatch service configuration. Copy to ./config.yaml and edit.
+http:
+  addr: 127.0.0.1:8080
+
+store:
+  driver: sqlite
+  dsn: file:signalwatch.db?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)
+
+# Channels are referenced by Subscriber.channels[].channel by name.
+channels:
+  - name: ops-email
+    type: smtp
+    smtp:
+      host: localhost
+      port: 1025          # Mailpit / Mailhog default for local dev
+      from: alerts@example.com
+
+  - name: ops-slack
+    type: slack
+    slack:
+      webhook_url: https://hooks.slack.com/services/REPLACE/ME/PLEASE
+
+  - name: ops-webhook
+    type: webhook
+    webhook:
+      url: ""              # leave empty to require a per-subscriber URL
+      headers:
+        x-signalwatch: "1"
+
+inputs:
+  event:
+    name: events           # the input_ref rules use to subscribe to push events
+  scrape: []
+  # scrape:
+  #   - name: traffic
+  #     url: http://localhost:9000/metrics.json
+  #     interval: 30s
+  #     field: rpm

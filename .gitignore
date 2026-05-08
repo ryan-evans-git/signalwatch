@@ -1,0 +1,46 @@
+# Binaries
+/bin/
+/signalwatch
+/signalwatchctl
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Local data
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+data/
+
+# Web build artifacts
+web/node_modules/
+web/dist/
+web/.vite/
+web/tsconfig.tsbuildinfo
+web/*.tsbuildinfo
+
+# Embedded UI build output. The directory is kept (.gitkeep) so
+# go:embed succeeds; assets are produced by `make web` / CI.
+internal/ui/dist/*
+!internal/ui/dist/.gitkeep
+
+# Local config
+config.local.yaml
+.env
+.env.local

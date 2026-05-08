@@ -1,0 +1,30 @@
+# Config for vladopajic/go-test-coverage.
+# Docs: https://github.com/vladopajic/go-test-coverage
+#
+# The thresholds below are POLICY, not aspiration: PRs that drop coverage
+# below these levels are blocked. They go in at policy from sprint 1; the
+# repo will currently fail this gate (33% as of 2026-05-08) — that's the
+# point. Sprints 2 + 3 raise coverage to clear the gate.
+
+profile: cover.out
+
+local-prefix: github.com/ryan-evans-git/signalwatch
+
+threshold:
+  total: 90       # repo-wide branch coverage
+  package: 90     # any single package
+  file: 70        # any single file (looser to allow rare-but-justified outliers)
+
+# Files we genuinely never test directly. Each entry needs a one-line reason.
+exclude:
+  paths:
+    # Process entry points are exercised end-to-end by integration tests but
+    # the main() function itself is glue. Inner logic should be extracted to
+    # testable helpers; see PI-PLAN sprint 3.
+    - cmd/signalwatch/main.go
+    - cmd/signalwatchctl/main.go
+    # Examples are documentation, not production code.
+    - examples/
+
+# Regenerate cover.out via:
+#   go test -coverprofile=cover.out -coverpkg=./... -covermode=atomic ./...
