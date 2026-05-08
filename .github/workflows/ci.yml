@@ -17,7 +17,10 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.24.x"
+  # Security/license/binary-build jobs run against latest stable Go so
+  # govulncheck sees stdlib fixes. The matrix coverage job below tests
+  # against the floor (1.24.x) AND latest (1.25.x) explicitly.
+  GO_VERSION: "1.25.x"
   NODE_VERSION: "22"
 
 jobs:
