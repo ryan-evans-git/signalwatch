@@ -64,7 +64,7 @@ func (c *Channel) Send(ctx context.Context, n channel.Notification) error {
 }
 
 func sendTLS(addr, host string, auth smtp.Auth, from string, to []string, msg []byte) error {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host})
+	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		return err
 	}

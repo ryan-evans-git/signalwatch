@@ -202,6 +202,8 @@ func run() error {
 }
 
 func loadConfig(path string) (*config, error) {
+	// #nosec G304 -- path is a CLI flag set by the operator running the
+	// binary, not user input crossing a trust boundary.
 	body, err := os.ReadFile(path)
 	if err != nil {
 		// Missing config file is OK — start with defaults.
