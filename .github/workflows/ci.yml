@@ -48,16 +48,11 @@ jobs:
 
       - name: golangci-lint
         # Source of truth for style + most static checks. Configured via
-        # .golangci.yml. Pin the action by SHA, not by floating tag —
-        # Dependabot rotates these automatically.
-        #
-        # Action v7+ dropped support for golangci-lint v1; migrating to
-        # v2 requires a config-schema rewrite. Stay on action v6.5.2 +
-        # lint v1.64.8 (last v1) until the v2 migration lands as its
-        # own change.
-        uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
+        # .golangci.yml (v2 schema). Pin the action by SHA, not by
+        # floating tag — Dependabot rotates these automatically.
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
-          version: v1.64.8
+          version: v2.12.2
           args: --timeout=5m
 
       - name: Build
