@@ -19,6 +19,11 @@ REQUIRED_CHECKS='[
   "gitleaks"
 ]'
 
+#
+# required_pull_request_reviews is intentionally null. CODEOWNERS lists
+# only the solo maintainer, and require_code_owner_reviews + enforce_admins
+# would block self-merges entirely. Flip this on once a second
+# maintainer/collaborator joins.
 gh api \
   --method PUT \
   -H "Accept: application/vnd.github+json" \
@@ -30,11 +35,7 @@ gh api \
     "contexts": ${REQUIRED_CHECKS}
   },
   "enforce_admins": true,
-  "required_pull_request_reviews": {
-    "dismiss_stale_reviews": true,
-    "require_code_owner_reviews": true,
-    "required_approving_review_count": 1
-  },
+  "required_pull_request_reviews": null,
   "restrictions": null,
   "required_linear_history": true,
   "allow_force_pushes": false,
