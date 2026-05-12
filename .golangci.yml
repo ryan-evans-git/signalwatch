@@ -1,52 +1,63 @@
-# golangci-lint config. The CI is the source of truth — keep this in sync
-# with the version pin in .github/workflows/ci.yml.
-
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
 linters:
-  disable-all: true
+  default: none
   enable:
-    - errcheck      # unchecked errors
-    - govet         # standard go vet checks
-    - ineffassign   # detected ineffective assignments
-    - staticcheck   # staticcheck.io rules (replaces deprecated megacheck)
-    - unused        # unused symbols
-    - misspell      # common misspellings
-    - gocyclo       # cyclomatic complexity
-    - revive        # community-driven golint replacement
-    - gofmt         # canonical formatting
-    - goimports     # import ordering + grouping
-    - bodyclose     # http response bodies must be Close()d
-    - errorlint     # errors.Is/As / wrap correctness
-    - copyloopvar   # 1.22+ loop-var semantics
-    - gosec         # security smells (also runs as a separate CI step)
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  revive:
+    - bodyclose
+    - copyloopvar
+    - errcheck
+    - errorlint
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    gocyclo:
+      min-complexity: 15
+    revive:
+      rules:
+        - name: var-naming
+        - name: exported
+          arguments:
+            - sayRepetitiveInsteadOfStutters
+        - name: package-comments
+        - name: indent-error-flow
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: var-naming
-      - name: exported
-        arguments: ["sayRepetitiveInsteadOfStutters"]
-      - name: package-comments
-      - name: indent-error-flow
-
-issues:
-  exclude-dirs:
-    - web/node_modules
-    - internal/ui/dist
-  exclude-rules:
-    # Tests can be a bit looser — long table tests, helpers without `_test`
-    # suffixes, and assertions sometimes trip these.
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - gosec
-    # main packages tolerate a longer main() before extraction.
-    - path: cmd/.*/main\.go
-      linters:
-        - gocyclo
+      - linters:
+          - errcheck
+          - gocyclo
+          - gosec
+        path: _test\.go
+      - linters:
+          - gocyclo
+        path: cmd/.*/main\.go
+    paths:
+      - web/node_modules
+      - internal/ui/dist
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - web/node_modules
+      - internal/ui/dist
+      - third_party$
+      - builtin$
+      - examples$

@@ -23,6 +23,13 @@ func Handler() http.Handler {
 	if err != nil {
 		return fallback()
 	}
+	return handlerFromFS(sub)
+}
+
+// handlerFromFS is the body of Handler() factored out so tests can
+// inject an in-memory filesystem; production callers always go through
+// Handler() with the embedded distFS.
+func handlerFromFS(sub fs.FS) http.Handler {
 	indexBytes, err := fs.ReadFile(sub, "index.html")
 	if err != nil {
 		return fallback()
