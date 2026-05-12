@@ -21,6 +21,13 @@ type Config struct {
 	Password string
 	From     string
 	UseTLS   bool
+
+	// TLSConfig, if non-nil, replaces the default tls.Config used when
+	// UseTLS is true. The default pins ServerName to Host and
+	// MinVersion to TLS 1.2; production deployments that need custom
+	// root CAs, client certs, or a different ServerName can supply
+	// their own. Tests use this to point at a fake TLS server.
+	TLSConfig *tls.Config
 }
 
 type Channel struct {
@@ -58,13 +65,16 @@ func (c *Channel) Send(ctx context.Context, n channel.Notification) error {
 	}
 
 	if c.cfg.UseTLS {
-		return sendTLS(addr, c.cfg.Host, auth, c.cfg.From, []string{n.Address}, msg)
+		return sendTLS(addr, c.cfg.Host, c.cfg.TLSConfig, auth, c.cfg.From, []string{n.Address}, msg)
 	}
 	return smtp.SendMail(addr, auth, c.cfg.From, []string{n.Address}, msg)
 }
 
-func sendTLS(addr, host string, auth smtp.Auth, from string, to []string, msg []byte) error {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+func sendTLS(addr, host string, tlsCfg *tls.Config, auth smtp.Auth, from string, to []string, msg []byte) error {
+	if tlsCfg == nil {
+		tlsCfg = &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	}
+	conn, err := tls.Dial("tcp", addr, tlsCfg)
 	if err != nil {
 		return err
 	}
