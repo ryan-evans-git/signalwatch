@@ -2,6 +2,7 @@ package scrape_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -76,7 +77,7 @@ func TestStart_EmitsRecordsAtInterval(t *testing.T) {
 	cancel()
 	select {
 	case err := <-startErr:
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Start: want context.Canceled, got %v", err)
 		}
 	case <-time.After(2 * time.Second):

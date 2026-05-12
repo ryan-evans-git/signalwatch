@@ -39,12 +39,12 @@ import (
 type failMode int
 
 const (
-	failNone failMode = iota
-	failGreet         // send 421 instead of 220; NewClient fails
-	failEHLO          // 5xx on EHLO + HELO; client.Mail() falls through
-	failMail          // 550 on MAIL FROM
-	failRcpt          // 550 on RCPT TO
-	failData          // 554 on DATA
+	failNone  failMode = iota
+	failGreet          // send 421 instead of 220; NewClient fails
+	failEHLO           // 5xx on EHLO + HELO; client.Mail() falls through
+	failMail           // 550 on MAIL FROM
+	failRcpt           // 550 on RCPT TO
+	failData           // 554 on DATA
 )
 
 type fakeSMTP struct {

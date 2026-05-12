@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -294,7 +295,7 @@ func TestSubmit_RespectsCanceledCtx(t *testing.T) {
 	// already pass via the api postEvent tests.
 	var caughtErr atomic.Bool
 	for i := 0; i < 10; i++ {
-		if err := eng.Submit(canceledCtx, "events", rule.Record{"i": i}); err == context.Canceled {
+		if err := eng.Submit(canceledCtx, "events", rule.Record{"i": i}); errors.Is(err, context.Canceled) {
 			caughtErr.Store(true)
 			break
 		}

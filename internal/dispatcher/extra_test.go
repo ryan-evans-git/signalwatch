@@ -258,17 +258,21 @@ func TestTick_ResolveErrorBranch(t *testing.T) {
 type faultStore struct {
 	inner store.Store
 
-	failUpsertLiveState  bool
-	failOpenIncident     bool
-	failListForRule      bool
-	failIncidentSubGet   bool
-	failResolveIncident  bool
-	failSubscribersGet   bool
+	failUpsertLiveState bool
+	failOpenIncident    bool
+	failListForRule     bool
+	failIncidentSubGet  bool
+	failResolveIncident bool
+	failSubscribersGet  bool
 }
 
-func (f *faultStore) Rules() store.RuleRepo                 { return f.inner.Rules() }
-func (f *faultStore) Subscribers() store.SubscriberRepo     { return &failSubscriberRepo{inner: f.inner.Subscribers(), fail: f.failSubscribersGet} }
-func (f *faultStore) Subscriptions() store.SubscriptionRepo { return &failSubscriptionRepo{inner: f.inner.Subscriptions(), failListForRule: f.failListForRule} }
+func (f *faultStore) Rules() store.RuleRepo { return f.inner.Rules() }
+func (f *faultStore) Subscribers() store.SubscriberRepo {
+	return &failSubscriberRepo{inner: f.inner.Subscribers(), fail: f.failSubscribersGet}
+}
+func (f *faultStore) Subscriptions() store.SubscriptionRepo {
+	return &failSubscriptionRepo{inner: f.inner.Subscriptions(), failListForRule: f.failListForRule}
+}
 func (f *faultStore) Incidents() store.IncidentRepo {
 	return &failIncidentRepo{inner: f.inner.Incidents(), failOpen: f.failOpenIncident, failResolve: f.failResolveIncident}
 }

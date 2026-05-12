@@ -2,6 +2,7 @@ package event_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -70,7 +71,7 @@ func TestStart_PopulatesSinkAndExitsOnCtxDone(t *testing.T) {
 	cancel()
 	select {
 	case err := <-startErr:
-		if err == nil || err != context.Canceled {
+		if err == nil || !errors.Is(err, context.Canceled) {
 			t.Fatalf("Start return: want context.Canceled, got %v", err)
 		}
 	case <-time.After(time.Second):
@@ -119,7 +120,7 @@ func TestSubmit_RespectsCtxDoneWhenSinkBlocks(t *testing.T) {
 		// Use a quickly-cancelled ctx so the first Submit returns immediately.
 		quickCtx, quickCancel := context.WithCancel(context.Background())
 		quickCancel()
-		if err := in.Submit(quickCtx, "", rule.Record{"x": 1}); err == context.Canceled {
+		if err := in.Submit(quickCtx, "", rule.Record{"x": 1}); errors.Is(err, context.Canceled) {
 			// Sink is installed; the canceled-ctx path executed.
 			return
 		}
