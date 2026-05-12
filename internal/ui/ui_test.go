@@ -17,19 +17,19 @@ func TestHandler_FallbackWhenDistEmpty(t *testing.T) {
 	defer srv.Close()
 
 	t.Run("root serves stub HTML", func(t *testing.T) {
-		resp, body := get(t, srv, "/")
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("status: %d", resp.StatusCode)
+		r := get(t, srv, "/")
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("status: %d", r.StatusCode)
 		}
-		if !strings.Contains(body, "signalwatch") || !strings.Contains(body, "make web") {
-			t.Errorf("stub HTML missing expected content: %s", body[:200])
+		if !strings.Contains(r.Body, "signalwatch") || !strings.Contains(r.Body, "make web") {
+			t.Errorf("stub HTML missing expected content: %s", r.Body[:200])
 		}
 	})
 
 	t.Run("non-root paths 404 in fallback", func(t *testing.T) {
-		resp, _ := get(t, srv, "/nonexistent")
-		if resp.StatusCode != http.StatusNotFound {
-			t.Errorf("status: want 404, got %d", resp.StatusCode)
+		r := get(t, srv, "/nonexistent")
+		if r.StatusCode != http.StatusNotFound {
+			t.Errorf("status: want 404, got %d", r.StatusCode)
 		}
 	})
 }
@@ -50,51 +50,60 @@ func TestHandlerFromFS_PopulatedDist(t *testing.T) {
 	defer srv.Close()
 
 	t.Run("root serves index.html", func(t *testing.T) {
-		resp, body := get(t, srv, "/")
-		if resp.StatusCode != http.StatusOK || !strings.Contains(body, "id=root") {
-			t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+		r := get(t, srv, "/")
+		if r.StatusCode != http.StatusOK || !strings.Contains(r.Body, "id=root") {
+			t.Fatalf("status=%d body=%s", r.StatusCode, r.Body)
 		}
-		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 			t.Errorf("Content-Type: want text/html prefix, got %q", ct)
 		}
-		if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+		if cc := r.Header.Get("Cache-Control"); cc != "no-cache" {
 			t.Errorf("Cache-Control: want no-cache, got %q", cc)
 		}
 	})
 
 	t.Run("/index.html also serves index", func(t *testing.T) {
-		resp, body := get(t, srv, "/index.html")
-		if resp.StatusCode != http.StatusOK || !strings.Contains(body, "id=root") {
-			t.Fatalf("status=%d body=%q", resp.StatusCode, body)
+		r := get(t, srv, "/index.html")
+		if r.StatusCode != http.StatusOK || !strings.Contains(r.Body, "id=root") {
+			t.Fatalf("status=%d body=%q", r.StatusCode, r.Body)
 		}
 	})
 
 	t.Run("asset file served verbatim", func(t *testing.T) {
-		resp, body := get(t, srv, "/assets/app.css")
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("status: %d", resp.StatusCode)
+		r := get(t, srv, "/assets/app.css")
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("status: %d", r.StatusCode)
 		}
-		if !strings.Contains(body, "color: red") {
-			t.Errorf("asset body: %q", body)
+		if !strings.Contains(r.Body, "color: red") {
+			t.Errorf("asset body: %q", r.Body)
 		}
 	})
 
 	t.Run("unknown route falls back to index", func(t *testing.T) {
-		resp, body := get(t, srv, "/some/spa/route")
-		if resp.StatusCode != http.StatusOK || !strings.Contains(body, "id=root") {
-			t.Fatalf("SPA fallback: status=%d body=%q", resp.StatusCode, body)
+		r := get(t, srv, "/some/spa/route")
+		if r.StatusCode != http.StatusOK || !strings.Contains(r.Body, "id=root") {
+			t.Fatalf("SPA fallback: status=%d body=%q", r.StatusCode, r.Body)
 		}
 	})
 }
 
-// Helper.
-func get(t *testing.T, srv *httptest.Server, path string) (*http.Response, string) {
+// httpResult is the (status, headers, body) tuple the helper returns.
+// We deliberately don't surface *http.Response so the bodyclose linter
+// doesn't flag callers that never call .Body.Close (the helper does).
+type httpResult struct {
+	StatusCode int
+	Header     http.Header
+	Body       string
+}
+
+// get fetches path and returns the response triple.
+func get(t *testing.T, srv *httptest.Server, path string) httpResult {
 	t.Helper()
 	resp, err := http.Get(srv.URL + path)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
+	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	return resp, string(body)
+	return httpResult{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: string(body)}
 }

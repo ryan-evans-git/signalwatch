@@ -170,7 +170,11 @@ func TestMount_NoUIHandler(t *testing.T) {
 	defer srv.Close()
 
 	// Healthz still works.
-	resp, _ := http.Get(srv.URL + "/healthz")
+	resp, err := http.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("GET healthz: %v", err)
+	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("healthz: %d", resp.StatusCode)
 	}
