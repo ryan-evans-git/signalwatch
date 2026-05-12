@@ -2,9 +2,8 @@
 # Docs: https://github.com/vladopajic/go-test-coverage
 #
 # The thresholds below are POLICY, not aspiration: PRs that drop coverage
-# below these levels are blocked. They go in at policy from sprint 1; the
-# repo will currently fail this gate (33% as of 2026-05-08) — that's the
-# point. Sprints 2 + 3 raise coverage to clear the gate.
+# below these levels are blocked. They went green on 2026-05-12 via
+# sprint 2 + 3; new code MUST keep them green.
 
 profile: cover.out
 
@@ -25,6 +24,13 @@ exclude:
     - cmd/signalwatchctl/main.go
     # Examples are documentation, not production code.
     - examples/
+    # Test-helper packages are exercised transitively by every driver-
+    # specific *_test.go but the cross-package coverage profile (Go test
+    # emits one row per (file, position) per test run, and the merger
+    # picks the last value seen) collapses their per-package count to
+    # zero. They're not production code; they're the conformance suite
+    # itself.
+    - internal/store/storetest/
 
 # Regenerate cover.out via:
 #   go test -coverprofile=cover.out -coverpkg=./... -covermode=atomic ./...
