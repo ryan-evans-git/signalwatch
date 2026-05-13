@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql" // wait.ForSQL needs a registered driver
+
 	"github.com/testcontainers/testcontainers-go"
 	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -41,14 +43,19 @@ func containerBaseDSN(t *testing.T) string {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 
+		// mysql:8.4 restarts the server after running init scripts, so a
+		// log-occurrence wait can return between the initial boot and
+		// the post-init restart. wait.ForSQL probes with an actual
+		// SELECT 1 so it only succeeds once the server is genuinely
+		// accepting queries on the post-restart instance.
 		c, err := tcmysql.Run(ctx, containerImage,
 			tcmysql.WithDatabase("signalwatch"),
-			tcmysql.WithUsername("root"),
+			tcmysql.WithUsername("signalwatch"),
 			tcmysql.WithPassword("signalwatch"),
 			testcontainers.WithWaitStrategy(
-				wait.ForLog("ready for connections").
-					WithOccurrence(2).
-					WithStartupTimeout(2*time.Minute),
+				wait.ForSQL("3306/tcp", "mysql", func(host string, port string) string {
+					return fmt.Sprintf("signalwatch:signalwatch@tcp(%s:%s)/signalwatch?parseTime=true", host, port)
+				}).WithStartupTimeout(3*time.Minute).WithPollInterval(2*time.Second),
 			),
 		)
 		if err != nil {
