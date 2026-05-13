@@ -11,6 +11,7 @@ REQUIRED_CHECKS='[
   "test (postgres integration)",
   "test (mysql integration)",
   "test (kafka integration)",
+  "test (sqs integration)",
   "gosec + govulncheck",
   "license policy (block GPL/AGPL/SSPL/BUSL/Elastic/Commons-Clause)",
   "trivy (filesystem)",
