@@ -19,36 +19,51 @@ import (
 	"github.com/ryan-evans-git/signalwatch/internal/subscriber"
 )
 
-// Mount registers handlers on the given mux. Pass an embedded UI handler
-// (or nil) to mount the SPA at "/".
-func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler) {
-	h := &handlers{eng: eng}
+// Mount registers handlers on the given mux. Pass an embedded UI
+// handler (or nil) to mount the SPA at "/". Additional options
+// (auth, etc.) come through the variadic MountOption parameter so
+// adding optional config doesn't break existing callers.
+//
+// Routes /healthz and the SPA root stay open regardless of auth
+// settings — /healthz so load balancers / readiness checks work,
+// and the SPA so the login screen can render. Every /v1/* route is
+// gated by WithAPIToken when configured. /v1/auth-status is open so
+// the SPA can probe whether auth is on before rendering.
+func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler, opts ...MountOption) {
+	var s mountSettings
+	for _, o := range opts {
+		o(&s)
+	}
+
+	h := &handlers{eng: eng, settings: s}
+	gate := func(fn http.HandlerFunc) http.HandlerFunc { return requireAuth(s.apiToken, fn) }
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
-	mux.HandleFunc("POST /v1/events", h.postEvent)
+	mux.HandleFunc("GET /v1/auth-status", h.authStatus)
+	mux.HandleFunc("POST /v1/events", gate(h.postEvent))
 
-	mux.HandleFunc("GET /v1/rules", h.listRules)
-	mux.HandleFunc("POST /v1/rules", h.createRule)
-	mux.HandleFunc("GET /v1/rules/{id}", h.getRule)
-	mux.HandleFunc("PUT /v1/rules/{id}", h.updateRule)
-	mux.HandleFunc("DELETE /v1/rules/{id}", h.deleteRule)
+	mux.HandleFunc("GET /v1/rules", gate(h.listRules))
+	mux.HandleFunc("POST /v1/rules", gate(h.createRule))
+	mux.HandleFunc("GET /v1/rules/{id}", gate(h.getRule))
+	mux.HandleFunc("PUT /v1/rules/{id}", gate(h.updateRule))
+	mux.HandleFunc("DELETE /v1/rules/{id}", gate(h.deleteRule))
 
-	mux.HandleFunc("GET /v1/subscribers", h.listSubscribers)
-	mux.HandleFunc("POST /v1/subscribers", h.createSubscriber)
-	mux.HandleFunc("GET /v1/subscribers/{id}", h.getSubscriber)
-	mux.HandleFunc("PUT /v1/subscribers/{id}", h.updateSubscriber)
-	mux.HandleFunc("DELETE /v1/subscribers/{id}", h.deleteSubscriber)
+	mux.HandleFunc("GET /v1/subscribers", gate(h.listSubscribers))
+	mux.HandleFunc("POST /v1/subscribers", gate(h.createSubscriber))
+	mux.HandleFunc("GET /v1/subscribers/{id}", gate(h.getSubscriber))
+	mux.HandleFunc("PUT /v1/subscribers/{id}", gate(h.updateSubscriber))
+	mux.HandleFunc("DELETE /v1/subscribers/{id}", gate(h.deleteSubscriber))
 
-	mux.HandleFunc("GET /v1/subscriptions", h.listSubscriptions)
-	mux.HandleFunc("POST /v1/subscriptions", h.createSubscription)
-	mux.HandleFunc("GET /v1/subscriptions/{id}", h.getSubscription)
-	mux.HandleFunc("PUT /v1/subscriptions/{id}", h.updateSubscription)
-	mux.HandleFunc("DELETE /v1/subscriptions/{id}", h.deleteSubscription)
+	mux.HandleFunc("GET /v1/subscriptions", gate(h.listSubscriptions))
+	mux.HandleFunc("POST /v1/subscriptions", gate(h.createSubscription))
+	mux.HandleFunc("GET /v1/subscriptions/{id}", gate(h.getSubscription))
+	mux.HandleFunc("PUT /v1/subscriptions/{id}", gate(h.updateSubscription))
+	mux.HandleFunc("DELETE /v1/subscriptions/{id}", gate(h.deleteSubscription))
 
-	mux.HandleFunc("GET /v1/incidents", h.listIncidents)
-	mux.HandleFunc("GET /v1/incidents/{id}", h.getIncident)
-	mux.HandleFunc("GET /v1/notifications", h.listNotifications)
-	mux.HandleFunc("GET /v1/states", h.listStates)
+	mux.HandleFunc("GET /v1/incidents", gate(h.listIncidents))
+	mux.HandleFunc("GET /v1/incidents/{id}", gate(h.getIncident))
+	mux.HandleFunc("GET /v1/notifications", gate(h.listNotifications))
+	mux.HandleFunc("GET /v1/states", gate(h.listStates))
 
 	if ui != nil {
 		mux.Handle("/", ui)
@@ -56,7 +71,17 @@ func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler) {
 }
 
 type handlers struct {
-	eng *engine.Engine
+	eng      *engine.Engine
+	settings mountSettings
+}
+
+// authStatus reports whether the server requires bearer-token auth.
+// Open endpoint (no token required) so the UI can decide whether to
+// show its login gate before issuing any /v1/* request.
+func (h *handlers) authStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"auth_required": h.settings.apiToken != "",
+	})
 }
 
 // ---- helpers ----

@@ -1,5 +1,9 @@
 // Tiny typed client for the signalwatch HTTP API. The fetch wrapper auto
-// JSON-encodes bodies and unwraps {error} responses.
+// JSON-encodes bodies, attaches the configured bearer token (if any),
+// unwraps {error} responses, and dispatches an auth-failed event on 401
+// so the UI can flip back to the login gate.
+
+import { getToken, clearToken, dispatchAuthFailed } from "./auth";
 
 export type Severity = "info" | "warning" | "critical";
 
@@ -81,12 +85,23 @@ export interface Notification {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, headers: {} };
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) {
+    headers["authorization"] = `Bearer ${token}`;
+  }
+  const init: RequestInit = { method, headers };
   if (body !== undefined) {
-    init.headers = { "content-type": "application/json" };
+    headers["content-type"] = "application/json";
     init.body = JSON.stringify(body);
   }
   const resp = await fetch(path, init);
+  if (resp.status === 401) {
+    // Token went stale or server flipped on auth — clear and let
+    // App.tsx swap in the login gate.
+    clearToken();
+    dispatchAuthFailed();
+  }
   const text = await resp.text();
   if (!resp.ok) {
     let msg = text;
