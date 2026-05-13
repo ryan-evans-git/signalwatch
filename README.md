@@ -97,9 +97,19 @@ channels:
     type: teams
     teams:
       webhook_url: https://outlook.office.com/webhook/.../IncomingWebhook/...
+  - name: ops-discord
+    type: discord
+    discord:
+      webhook_url: https://discord.com/api/webhooks/.../...
+  - name: oncall-sms
+    type: sms
+    sms:
+      from_number: "+15555550100"   # Twilio-provisioned number, E.164
+      # SIGNALWATCH_TWILIO_ACCOUNT_SID + SIGNALWATCH_TWILIO_AUTH_TOKEN
+      # must be set in the environment — never put them in this file.
 ```
 
-Available channel `type`s: `smtp`, `slack`, `webhook`, `pagerduty`, `teams`. `pagerduty` uses the Events API v2 (trigger / resolve mapped from rule kind); subscribers can override the routing key via their channel binding's `address`. `teams` uses an incoming-webhook URL.
+Available channel `type`s: `smtp`, `slack`, `webhook`, `pagerduty`, `teams`, `discord`, `sms`. `pagerduty` uses the Events API v2 (trigger / resolve mapped from rule kind); subscribers can override the routing key via their channel binding's `address`. `teams` / `discord` use incoming-webhook URLs. `sms` uses Twilio's Messaging API; credentials come from env vars (see [`SECURITY.md`](./SECURITY.md)), the subscriber's `address` carries the destination phone number.
 
 See [`examples/`](./examples) for embedding the engine as a library, and [`docs/RULES.md`](./docs/RULES.md) for the rule reference.
 

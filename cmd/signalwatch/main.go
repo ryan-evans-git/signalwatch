@@ -20,8 +20,10 @@ import (
 	"github.com/ryan-evans-git/signalwatch/engine"
 	"github.com/ryan-evans-git/signalwatch/internal/api"
 	"github.com/ryan-evans-git/signalwatch/internal/channel"
+	"github.com/ryan-evans-git/signalwatch/internal/channel/discord"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/pagerduty"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/slack"
+	"github.com/ryan-evans-git/signalwatch/internal/channel/sms"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/smtp"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/teams"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/webhook"
@@ -66,6 +68,17 @@ type config struct {
 		Teams *struct {
 			WebhookURL string `yaml:"webhook_url"`
 		} `yaml:"teams,omitempty"`
+		Discord *struct {
+			WebhookURL string `yaml:"webhook_url"`
+		} `yaml:"discord,omitempty"`
+		// SMS credentials never go in YAML — only the From number
+		// (and an optional API-base override for testing). AccountSID
+		// + AuthToken are read from SIGNALWATCH_TWILIO_* env vars
+		// when the channel is constructed.
+		SMS *struct {
+			FromNumber string `yaml:"from_number"`
+			APIBase    string `yaml:"api_base,omitempty"`
+		} `yaml:"sms,omitempty"`
 	} `yaml:"channels"`
 	Inputs struct {
 		Event struct {
@@ -149,6 +162,21 @@ func run() error {
 				return fmt.Errorf("channel %s: teams section required", c.Name)
 			}
 			channels[c.Name] = teams.New(teams.Config{Name: c.Name, WebhookURL: c.Teams.WebhookURL})
+		case "discord":
+			if c.Discord == nil {
+				return fmt.Errorf("channel %s: discord section required", c.Name)
+			}
+			channels[c.Name] = discord.New(discord.Config{Name: c.Name, WebhookURL: c.Discord.WebhookURL})
+		case "sms":
+			if c.SMS == nil {
+				return fmt.Errorf("channel %s: sms section required", c.Name)
+			}
+			channels[c.Name] = sms.New(sms.Config{
+				Name:       c.Name,
+				FromNumber: c.SMS.FromNumber,
+				APIBase:    c.SMS.APIBase,
+				// AccountSID + AuthToken come from env vars inside New().
+			})
 		default:
 			return fmt.Errorf("channel %s: unknown type %q", c.Name, c.Type)
 		}
