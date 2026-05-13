@@ -127,13 +127,25 @@ Scope:
 
 ---
 
-## PI 2 — "Ecosystem breadth → `v0.3.0`" (≈ 12 weeks, 6 sprints)
+## PI 2 — "Ecosystem breadth → `v0.3.0`" (≈ 12 weeks, 6 sprints) — **DELIVERED 2026-05-13**
 
 **PI goal:** signalwatch grows from "production-ready on three stores + four stream sources + three notification channels" to a usable v0.3.0 with the expression-language escape hatch live, two more datasources (DuckDB, expr), four more channels (PagerDuty / Teams / Discord / SMS), and per-rule incident drill-down in the UI. PI ends with a signed `v0.3.0` release.
 
 The discipline that landed PI 1 carries forward unchanged: TDD-first, 90% gate enforced, branch-protected `main`, signed commits, linear history. The "How we work" section above is still the operating contract.
 
-### Sprint 7 — `v0.2.0` release + UI dependency refresh
+**Outcome:** every code-side goal landed. Both `v0.2.0` and `v0.3.0` release tags remain intentionally deferred per user direction.
+
+| | State at PI 2 close (commit `824c6f8`) |
+| --- | --- |
+| Coverage | 95.9% (1825/1904); gate stable across the 6 sprints |
+| CI gates | 16 required status checks (added `test (duckdb integration)`) |
+| Rule conditions | 5 total (added `expression`) |
+| Datasources | 4 (sqlite, postgres, mysql + opt-in DuckDB) |
+| Channels | 7 (added pagerduty, teams, discord, sms) |
+| UI | hash-routed drill-down + Validate-button rule form |
+| Tags | `v0.2.0` + `v0.3.0` deferred |
+
+### Sprint 7 — `v0.2.0` release + UI dependency refresh — **delivered (tag deferred)**
 
 **Goal:** ship the deferred `v0.2.0` tag, clear the PI-1-deferred Dependabot bumps in one coordinated sweep. No new product features.
 
@@ -150,7 +162,7 @@ Acceptance:
 - All five deferred Dependabot PRs are closed (merged or superseded by hand-written PRs).
 - `CHANGELOG.md`'s `[Unreleased]` section is renamed to `[0.2.0]` with a release date.
 
-### Sprint 8 — Expression-language conditions
+### Sprint 8 — Expression-language conditions — **delivered**
 
 **Goal:** ship the `expr` rule condition — the original v0.1 plan's escape hatch from typed conditions, finally delivered.
 
@@ -168,7 +180,7 @@ Acceptance:
 - A rule with `{"type":"expression","spec":{"expr":"avg_over(\"mpg\",\"30d\") < 5"}}` round-trips through the API and evaluates correctly on push and scheduled paths.
 - Lint + tests + coverage gate green.
 
-### Sprint 9 — DuckDB datasource
+### Sprint 9 — DuckDB datasource — **delivered**
 
 **Goal:** the `sql_returns_rows` rule type accepts DuckDB registered datasources, opening analytical-SQL alerting without needing a separate Postgres.
 
@@ -185,7 +197,7 @@ Acceptance:
 - DuckDB-backed `sql_returns_rows` rule passes the same evaluator semantics already exercised by the SQLite-backed equivalent.
 - DuckDB is opt-in: a build that doesn't enable the duckdb tag still compiles + ships as a static single binary.
 
-### Sprint 10 — Channels A: PagerDuty + MS Teams
+### Sprint 10 — Channels A: PagerDuty + MS Teams — **delivered**
 
 **Goal:** add the two most-asked-for incident-management channels, modeled exactly like Slack + webhook (testable, lint-clean, 90%+ coverage).
 
@@ -201,7 +213,7 @@ Acceptance:
 
 - Sending a FIRING / RESOLVED notification through each channel renders the expected wire payload (verified by httptest assertion).
 
-### Sprint 11 — Channels B: Discord + Twilio SMS
+### Sprint 11 — Channels B: Discord + Twilio SMS — **delivered**
 
 **Goal:** add the consumer-facing notification channels. Twilio SMS introduces a paid-API integration so the CI story is different from Discord.
 
@@ -218,7 +230,7 @@ Acceptance:
 - Twilio channel constructs the correct Messages API request (httptest-asserted); the integration test stays offline by default.
 - `SECURITY.md` updated with the new Twilio-credentials handling guidance.
 
-### Sprint 12 — UI per-rule drill-down, alert-history exports, `v0.3.0` release
+### Sprint 12 — UI per-rule drill-down, alert-history exports, `v0.3.0` release — **delivered (tag deferred)**
 
 **Goal:** the headline UX upgrade for v0.3 plus the release.
 
@@ -237,21 +249,130 @@ Acceptance:
 
 ---
 
-## Backlog (post PI 2)
+## PI 3 — "Production hardening + cloud scale → `v0.4.0`" (≈ 12 weeks, 6 sprints)
 
-Items deferred to PI 3+:
+**PI goal:** signalwatch becomes operationally credible at scale. Cloud-managed streams (the obvious "I run my alerts off MSK / Pub/Sub" deployments), retention so the store doesn't grow unboundedly, observability so operators can see what the engine is doing, and per-user API tokens replacing the shared-secret model from PI 1. PI ends with a signed `v0.4.0` release.
 
-- Multi-node / leader election (etcd or DB-row lock).
-- Cloud-managed stream variants (MSK, Pub/Sub, Service Bus, EventBridge).
-- Full RBAC + SSO + audit log.
-- Per-user API tokens with named scopes + expiry (the shared-token shape currently shipping is intentionally minimal for v0.2/v0.3).
-- Alert history retention / archival (`docs/RETENTION.md`).
-- OpenTelemetry traces on rule evaluation + dispatch.
+The operating contract carries forward unchanged: TDD-first, 90% gate enforced, branch-protected `main`, signed commits, linear history, 16 status checks (more added as new integration jobs land).
+
+### Sprint 13 — MSK (AWS-managed Kafka) input
+
+**Goal:** the existing `internal/input/stream/kafka` package gains an AWS-IAM-SASL auth path so it can connect to MSK without a static username/password. Most cloud-Kafka deployments use IAM, so this unblocks the biggest hosted-Kafka case.
+
+Scope:
+
+- [ ] Pull in `github.com/aws/aws-msk-iam-sasl-signer-go/signer` (or equivalent) and wire it into `kafka.Reader` via a TLS-aware `sasl.Mechanism`.
+- [ ] Config: extend `kafka` channel config with `sasl: { mechanism: "AWS_MSK_IAM", region: "..." }`. The IAM credentials follow the AWS SDK default chain (env vars / IRSA / shared config). Plain SASL/SCRAM stays available for non-MSK clusters.
+- [ ] Integration: testcontainers' Kafka module doesn't fake IAM, so the IAM path is unit-tested with a fake signer (the message-loop already has a `Reader` interface for this). A `SW_MSK_LIVE_TEST=1` opt-in path is documented for maintainers who want to do a real-MSK send before release; this lives outside CI.
+- [ ] `docs/RULES.md` and the README config example gain MSK mentions.
+
+Acceptance:
+
+- A configured MSK-style channel signs its SASL/AUTHENTICATE frames against the AWS SDK credential chain. Unit tests fake the signer and assert the kafka-go Reader is constructed with the correct mechanism.
+- Existing `test (kafka integration)` job stays green (no regression on plain Kafka).
+
+### Sprint 14 — Google Pub/Sub input
+
+**Goal:** new `internal/input/stream/pubsub` package consuming from GCP Pub/Sub subscriptions. Symmetric with the Kafka / SQS / RabbitMQ shape: per-subscription goroutine, JSON-object decoding, ack on success, dead-letter on bad messages.
+
+Scope:
+
+- [ ] `cloud.google.com/go/pubsub` client wired through a small `Subscriber` interface so unit tests can fake it.
+- [ ] Authentication via Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` or workload identity); no service-account JSON in YAML.
+- [ ] Integration test via Pub/Sub emulator (testcontainers `gcr.io/google.com/cloudsdktool/google-cloud-cli` with the `gcloud beta emulators pubsub start` mode), tagged `integration`.
+- [ ] New `test (pubsub integration)` CI job. Branch protection updated to require it (17 checks).
+
+Acceptance:
+
+- A configured `pubsub` channel polls a real emulator-backed subscription, decodes JSON-object messages, emits `EvaluationRecord`s, and acks. Bad messages are nacked-with-no-redelivery (or dead-lettered via the GCP standard).
+
+### Sprint 15 — Alert-history retention + archival
+
+**Goal:** the store doesn't grow unboundedly. Operators can configure a retention window; the engine periodically prunes resolved-and-aged incidents (and their notifications + sub-states) and optionally streams them to an archive sink for cold storage.
+
+Scope:
+
+- [ ] New `internal/retention` package with a tick-based pruner. Config: `retention: { window: "90d", archive_sink: null|"json"|"webhook" }`.
+- [ ] Store-level `DeleteIncidentsResolvedBefore(t time.Time) ([]Incident, error)` added to the conformance suite — all three drivers implement it.
+- [ ] Optional archive sinks: JSON file (rotated daily) or HTTP POST to a configured webhook URL. Pluggable so a future S3 sink is trivial.
+- [ ] `docs/RETENTION.md` describing the lifecycle + tuning knobs.
+
+Acceptance:
+
+- A rule that fires + resolves + ages past the retention window has its incident + notifications + sub-state removed from the store on the next prune tick.
+- Archive sink (when configured) receives the deleted incident payload before the row goes away. Tests fake both sinks via httptest / tempdir.
+
+### Sprint 16 — OpenTelemetry tracing
+
+**Goal:** operators can see what the engine is doing. The hot paths — rule evaluation, channel send, store query — emit OpenTelemetry spans. An optional OTLP exporter ships traces to any OTel-compatible backend (Jaeger, Honeycomb, Tempo, etc.).
+
+Scope:
+
+- [ ] `go.opentelemetry.io/otel` + `go.opentelemetry.io/otel/sdk` deps. Wired through a small `engine.Options.Tracer` field; default is a no-op tracer (no overhead when disabled).
+- [ ] Spans: `eval.RuleEval` (per evaluation, attrs: rule_id, input_ref, mode, triggered), `dispatcher.Notify` (per notification, attrs: channel, kind, status), `channel.Send` (per send, attrs: channel name, address-hash). HTTP API + store queries instrumented via existing OpenTelemetry middleware.
+- [ ] OTLP exporter wired in `cmd/signalwatch` behind `SIGNALWATCH_OTEL_EXPORTER=otlp` + standard OTel env vars (`OTEL_EXPORTER_OTLP_ENDPOINT`, etc.).
+- [ ] `docs/OBSERVABILITY.md` with the trace-attribute catalog + an example Jaeger screenshot.
+
+Acceptance:
+
+- With OTLP enabled, a rule-firing event produces a parent span (eval) with children for dispatch + each notification + each store call. Span attributes include the rule ID + incident ID so an operator can trace a single alert end-to-end.
+- Coverage stays ≥ 90% on the new instrumentation code.
+
+### Sprint 17 — Per-user API tokens (replacing shared-token)
+
+**Goal:** the shared-token auth from PI 1 sprint 6 is adequate for v0.2 / v0.3 but not for multi-operator deployments. Replace it with per-user tokens stored in the database, with named scopes (read-only / full) and optional expiry. Sets up for v1.0's full RBAC.
+
+Scope:
+
+- [ ] New `api_tokens` table on all three stores (conformance suite extended). Columns: `id`, `name`, `hash` (bcrypt), `scope`, `created_at`, `expires_at`, `last_used_at`.
+- [ ] New CRUD endpoints `GET/POST/DELETE /v1/api-tokens`. Creating a token returns the plaintext exactly once.
+- [ ] `internal/api/auth.go`'s middleware switches to comparing against hashed tokens. The legacy `SIGNALWATCH_API_TOKEN` env var stays supported as a bootstrap admin token for first-run; a warning logs to encourage rotating to a DB-stored token.
+- [ ] UI: new *API tokens* tab. Create → show plaintext once with a copy button + rotation guidance.
+- [ ] `SECURITY.md` updated.
+
+Acceptance:
+
+- A token issued via the API authenticates for `/v1/*` requests. Revoking it via DELETE invalidates it on the next request. Bootstrap-env-var fallback continues to work for first-run + recovery.
+- Token plaintext is never logged or persisted to disk.
+
+### Sprint 18 — `v0.4.0` release prep + maintainer slack
+
+**Goal:** cut `v0.4.0` (if user direction permits), refresh deferred Dependabot bumps + minor cleanups, regenerate screenshots that changed during PI 3 (likely OTel + API-tokens UI).
+
+Scope:
+
+- [ ] Triage open Dependabot PRs accumulated during PI 3; coordinated bump where useful.
+- [ ] `make screenshots` regenerates the README PNGs; add `api-tokens.png` if the new UI tab is visually distinct.
+- [ ] `CHANGELOG.md` rolls Unreleased → `[0.4.0]` with release date.
+- [ ] Cut signed `v0.4.0` annotated tag (gated by user direction, like v0.2.0 / v0.3.0). If tags remain deferred, the prep work still lands and the tag waits.
+- [ ] Slack space: room to absorb a slipped scope item from sprints 13–17 if one needs it.
+
+Acceptance:
+
+- `main` is publishable: docs current, tests green, gate stable, no half-landed feature in the diff between the last sprint-17 merge and the would-be tag commit.
+
+---
+
+## Backlog (post PI 3)
+
+Items deferred to PI 4+:
+
+- **Azure Service Bus** input — cloud stream parity gap from the original v0.4 roadmap; pushed because two cloud streams (MSK + Pub/Sub) is the high-impact pair for PI 3.
+- **AWS EventBridge** input — same rationale as Service Bus.
+- **Cloud-store adapters** (Aurora, Cloud SQL, Azure DB) — currently a Postgres connection-string works for all three; native adapters would mostly be auth + IAM glue.
+- **Multi-node / leader election** (etcd or DB-row lock). Hard requirement for the v0.5 milestone; PI 4 lands it.
+- **Sharded evaluators consuming from shared queues** — the partner workstream for multi-node.
+- **Full RBAC + SSO** (OIDC/SAML). Per-user tokens (sprint 17) is the half-step; full RBAC is post-v0.4.
+- **Audit log** — every state change persisted to a write-only, queryable timeline.
+- **DuckDB write paths / persistence** — currently we register an existing `*sql.DB`; spawning + lifecycle would be its own work.
+- **MariaDB compatibility test job** — the MySQL driver works against MariaDB in practice; a separate integration job would prove it.
+- **Webhook channel templating** — a small expr-style template language for the webhook body, so operators don't have to write a downstream translator. Low priority.
 
 ---
 
 ## Updates log
 
+- **2026-05-13 (afternoon)** — PI 2 closed (every sprint's code merged; both `v0.2.0` and `v0.3.0` tags remain deferred per user). PI 3 ("Production hardening + cloud scale → v0.4.0") drafted with six sprints: MSK (sprint 13), Pub/Sub (sprint 14), retention + archival (sprint 15), OpenTelemetry tracing (sprint 16), per-user API tokens (sprint 17), v0.4.0 release prep (sprint 18). The original v0.4 roadmap entry had four cloud streams (MSK, Pub/Sub, Service Bus, EventBridge); pulled two into PI 3 and deferred Service Bus + EventBridge to PI 4 to keep the integration-test surface manageable. Added per-user API tokens to PI 3 as a stepping stone for v1.0's full RBAC. Existing 16 required CI gates expected to grow to 17 (pubsub integration) during PI 3.
 - **2026-05-13** — PI 1 closed; PI 2 ("Ecosystem breadth → v0.3.0") drafted. PI 1 outcome: 96.3% coverage, 15 required CI gates, three stores + six inputs + three channels, shared-token auth. The only scope item that slipped is the `v0.2.0` tag, intentionally carried into PI 2 sprint 7 so it bundles with the deferred UI dep refresh. PI 2 absorbs the v0.3 roadmap entries: expression-language conditions, DuckDB datasource, PagerDuty / Teams / Discord / SMS channels, per-rule incident drill-down UI. Multi-node, cloud-managed streams, RBAC/SSO, and per-user API tokens remain in the backlog.
 - **2026-05-08 v2** — User redirected: 90% gate from day 1, no merges to main until 90%. Sprint 1 narrowed to foundations + CICD scaffolding only. Sprint 2 + 3 focus entirely on coverage of existing code. v0.2 feature work (Postgres / MySQL / streams) deferred to sprints 4–6.
 - **2026-05-08 v1** — PI 1 created. v0.1 is code-complete but not release-ready (33% coverage, no CICD).
