@@ -92,7 +92,7 @@ channels:
   - name: ops-pagerduty
     type: pagerduty
     pagerduty:
-      routing_key: 12345abcdef67890fedcba0987654321
+      routing_key: ${SIGNALWATCH_PAGERDUTY_ROUTING_KEY}  # 32-char integration key, see PagerDuty UI
   - name: ops-teams
     type: teams
     teams:
