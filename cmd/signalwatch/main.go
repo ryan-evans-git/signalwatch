@@ -20,8 +20,10 @@ import (
 	"github.com/ryan-evans-git/signalwatch/engine"
 	"github.com/ryan-evans-git/signalwatch/internal/api"
 	"github.com/ryan-evans-git/signalwatch/internal/channel"
+	"github.com/ryan-evans-git/signalwatch/internal/channel/pagerduty"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/slack"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/smtp"
+	"github.com/ryan-evans-git/signalwatch/internal/channel/teams"
 	"github.com/ryan-evans-git/signalwatch/internal/channel/webhook"
 	"github.com/ryan-evans-git/signalwatch/internal/input"
 	"github.com/ryan-evans-git/signalwatch/internal/input/event"
@@ -57,6 +59,13 @@ type config struct {
 			URL     string            `yaml:"url"`
 			Headers map[string]string `yaml:"headers"`
 		} `yaml:"webhook,omitempty"`
+		PagerDuty *struct {
+			RoutingKey string `yaml:"routing_key"`
+			EventsURL  string `yaml:"events_url,omitempty"`
+		} `yaml:"pagerduty,omitempty"`
+		Teams *struct {
+			WebhookURL string `yaml:"webhook_url"`
+		} `yaml:"teams,omitempty"`
 	} `yaml:"channels"`
 	Inputs struct {
 		Event struct {
@@ -126,6 +135,20 @@ func run() error {
 				cfgw.Headers = c.Webhook.Headers
 			}
 			channels[c.Name] = webhook.New(cfgw)
+		case "pagerduty":
+			if c.PagerDuty == nil {
+				return fmt.Errorf("channel %s: pagerduty section required", c.Name)
+			}
+			channels[c.Name] = pagerduty.New(pagerduty.Config{
+				Name:       c.Name,
+				RoutingKey: c.PagerDuty.RoutingKey,
+				EventsURL:  c.PagerDuty.EventsURL,
+			})
+		case "teams":
+			if c.Teams == nil {
+				return fmt.Errorf("channel %s: teams section required", c.Name)
+			}
+			channels[c.Name] = teams.New(teams.Config{Name: c.Name, WebhookURL: c.Teams.WebhookURL})
 		default:
 			return fmt.Errorf("channel %s: unknown type %q", c.Name, c.Type)
 		}
