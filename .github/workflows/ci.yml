@@ -199,6 +199,23 @@ jobs:
       - name: mysql conformance
         run: go test -race -tags=integration -timeout=10m ./internal/store/mysql/...
 
+  test-kafka:
+    name: test (kafka integration)
+    runs-on: ubuntu-latest
+    # testcontainers-go spins up confluent-local Kafka for the streaming
+    # input integration tests. Tagged `integration` like the store
+    # tests; the default `go test ./...` skips.
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: go mod verify
+        run: go mod verify
+      - name: kafka integration
+        run: go test -race -tags=integration -timeout=10m ./internal/input/stream/kafka/...
+
   binary-build:
     name: binary build (sanity)
     runs-on: ubuntu-latest
