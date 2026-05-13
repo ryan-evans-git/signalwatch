@@ -129,6 +129,7 @@ export const api = {
     // condition's expr-lang program) without persisting. Throws on
     // validation/compile errors with the server's message.
     validate: (r: Partial<Rule>) => request<{ ok: boolean }>("POST", "/v1/rules/validate", r),
+    get: (id: string) => request<Rule>("GET", `/v1/rules/${encodeURIComponent(id)}`),
   },
   subscribers: {
     list: () => request<Subscriber[]>("GET", "/v1/subscribers"),
@@ -142,6 +143,13 @@ export const api = {
   },
   incidents: {
     list: () => request<Incident[]>("GET", "/v1/incidents"),
+    listForRule: (ruleID: string) =>
+      request<Incident[]>("GET", `/v1/incidents?rule_id=${encodeURIComponent(ruleID)}`),
+    get: (id: string) =>
+      request<{ incident: Incident; notifications: Notification[] }>(
+        "GET",
+        `/v1/incidents/${encodeURIComponent(id)}`,
+      ),
   },
   notifications: {
     list: () => request<Notification[]>("GET", "/v1/notifications"),

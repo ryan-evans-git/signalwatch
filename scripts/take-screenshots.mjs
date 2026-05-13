@@ -35,6 +35,12 @@ const SHOTS = [
   { name: "incidents", tab: "Incidents" },
 ];
 
+// Hash-routed deep links to capture in addition to the top-level tabs.
+// Each entry navigates to a hash and screenshots the resulting page.
+const HASH_SHOTS = [
+  { name: "rule-detail", hash: "#/rules/r-orders" },
+];
+
 const browser = await chromium.launch();
 try {
   const context = await browser.newContext({
@@ -52,6 +58,17 @@ try {
     // Brief wait for React's render flush — without it, the
     // active-tab underline occasionally captures one frame behind.
     await page.waitForTimeout(150);
+    const out = resolve(OUT_DIR, `${shot.name}.png`);
+    await page.screenshot({ path: out, fullPage: false });
+    console.log(`wrote ${out}`);
+  }
+
+  for (const shot of HASH_SHOTS) {
+    await page.goto(BASE + "/" + shot.hash, { waitUntil: "networkidle" });
+    // The hash-routed page fans out several requests (rule + incidents
+    // + per-incident notifications). networkidle covers most of it,
+    // but give React a beat for the final render pass.
+    await page.waitForTimeout(400);
     const out = resolve(OUT_DIR, `${shot.name}.png`);
     await page.screenshot({ path: out, fullPage: false });
     console.log(`wrote ${out}`);
