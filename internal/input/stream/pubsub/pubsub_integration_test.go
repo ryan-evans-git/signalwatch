@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,10 +17,25 @@ import (
 	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/ryan-evans-git/signalwatch/internal/input"
 	psinput "github.com/ryan-evans-git/signalwatch/internal/input/stream/pubsub"
 )
+
+// emulatorOpts returns the SDK options needed to point a v2 admin
+// client at the Pub/Sub emulator. The regular *Client picks up
+// PUBSUB_EMULATOR_HOST automatically; the apiv1 admin clients do not.
+func emulatorOpts() []option.ClientOption {
+	host := os.Getenv("PUBSUB_EMULATOR_HOST")
+	return []option.ClientOption{
+		option.WithEndpoint(host),
+		option.WithoutAuthentication(),
+		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+	}
+}
 
 // One Pub/Sub emulator container per `go test` invocation. Each
 // subtest creates its own topic + subscription within that emulator
@@ -94,7 +110,8 @@ func setupTopicAndSub(t *testing.T, projectID, topicID, subID string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	topicAdmin, err := pubsubadmin.NewTopicAdminClient(ctx)
+	opts := emulatorOpts()
+	topicAdmin, err := pubsubadmin.NewTopicAdminClient(ctx, opts...)
 	if err != nil {
 		t.Fatalf("NewTopicAdminClient: %v", err)
 	}
@@ -103,7 +120,7 @@ func setupTopicAndSub(t *testing.T, projectID, topicID, subID string) {
 	if _, err := topicAdmin.CreateTopic(ctx, &pubsubpb.Topic{Name: topicName}); err != nil {
 		t.Fatalf("CreateTopic: %v", err)
 	}
-	subAdmin, err := pubsubadmin.NewSubscriptionAdminClient(ctx)
+	subAdmin, err := pubsubadmin.NewSubscriptionAdminClient(ctx, opts...)
 	if err != nil {
 		t.Fatalf("NewSubscriptionAdminClient: %v", err)
 	}
