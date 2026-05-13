@@ -38,6 +38,21 @@ type Topic struct {
 	MaxBytes int
 }
 
+// SASLConfig opts the Kafka reader into a SASL-authenticated dial.
+// Currently only the AWS_MSK_IAM mechanism is supported (Amazon's
+// hosted Kafka); plain SASL/SCRAM is the next mechanism we'd add if
+// the need arises.
+type SASLConfig struct {
+	// Mechanism is the SASL mechanism name. The only supported value
+	// is "AWS_MSK_IAM"; left for explicit configuration so non-MSK
+	// SASL mechanisms can be added without a breaking schema change.
+	Mechanism string
+	// Region is the AWS region the MSK cluster lives in. Required for
+	// the AWS_MSK_IAM mechanism — the signer's presigned URL bakes
+	// in the region.
+	Region string
+}
+
 // Config configures the Kafka input.
 type Config struct {
 	// Brokers is the bootstrap broker list, e.g. []string{"localhost:9092"}.
@@ -45,6 +60,10 @@ type Config struct {
 	// Topics are the topics this input subscribes to. The input fans
 	// out one reader goroutine per topic.
 	Topics []Topic
+	// SASL, when non-nil, configures broker authentication. MSK
+	// clusters require SASL; on-prem / testcontainers clusters
+	// typically leave this nil.
+	SASL *SASLConfig
 	// Logger receives warning logs (bad messages, transient errors).
 	// Defaults to slog.Default() when nil.
 	Logger *slog.Logger
@@ -56,6 +75,10 @@ type Config struct {
 	// reader without spinning up a real broker. Production should
 	// leave it nil.
 	NewReader func(cfg kg.ReaderConfig) Reader
+	// tokenProvider, when non-nil, overrides the default AWS MSK IAM
+	// token signer. Tests inject deterministic providers; production
+	// callers leave it nil.
+	tokenProvider tokenProvider
 }
 
 // Reader is the subset of *kafka.Reader the input uses. Spelled out as
@@ -95,6 +118,14 @@ func New(cfg Config) (*Input, error) {
 			cfg.Topics[i].MaxBytes = 10 << 20 // 10 MiB
 		}
 	}
+	if cfg.SASL != nil {
+		if cfg.SASL.Mechanism != MSKIAMMechanismName {
+			return nil, errors.New("kafka input: unsupported SASL mechanism " + cfg.SASL.Mechanism + " (only AWS_MSK_IAM is supported today)")
+		}
+		if strings.TrimSpace(cfg.SASL.Region) == "" {
+			return nil, errors.New("kafka input: SASL mechanism " + cfg.SASL.Mechanism + " requires Region")
+		}
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -129,13 +160,20 @@ func (i *Input) Start(ctx context.Context, sink chan<- input.EvaluationRecord) e
 }
 
 func (i *Input) runTopic(ctx context.Context, t Topic, sink chan<- input.EvaluationRecord) {
-	reader := i.cfg.NewReader(kg.ReaderConfig{
+	rcfg := kg.ReaderConfig{
 		Brokers:  i.cfg.Brokers,
 		Topic:    t.Name,
 		GroupID:  t.GroupID,
 		MinBytes: t.MinBytes,
 		MaxBytes: t.MaxBytes,
-	})
+	}
+	if i.cfg.SASL != nil {
+		// MSK requires SASL + TLS on every connection. Each reader
+		// gets its own Dialer so kafka-go's connection pool can
+		// re-sign on token rotation as needed.
+		rcfg.Dialer = buildMSKDialer(i.cfg.SASL.Region, i.cfg.tokenProvider, i.cfg.DialTimeout)
+	}
+	reader := i.cfg.NewReader(rcfg)
 	defer reader.Close()
 
 	for {

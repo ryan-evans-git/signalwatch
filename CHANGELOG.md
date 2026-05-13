@@ -4,6 +4,10 @@ All notable changes to signalwatch are recorded here. Format adheres to [Keep a 
 
 ## [Unreleased]
 
+### Added (PI 3)
+
+- **AWS MSK (managed Kafka) auth.** The existing `internal/input/stream/kafka` package gains a `SASL` config option implementing AWS' `AWS_MSK_IAM` mechanism via `aws-msk-iam-sasl-signer-go`. When configured, the input dials brokers with TLS + an IAM-signed presigned-URL token; AWS credentials follow the SDK default chain (env / IRSA / shared config). Plain (no-SASL) dialing remains the default for on-prem clusters and the testcontainers integration job.
+
 ### Added (PI 2)
 
 - **Per-rule incident drill-down (UI).** New hash route `#/rules/:id` reachable via a *view* link on each rule row. Renders the rule's full incident history with per-incident notification timelines (channel · address · timestamp). Top-right *Export incidents CSV* shortcut links to the new export endpoint. UI also fixes a display bug where unresolved incidents could render with Go's zero-time timestamp.

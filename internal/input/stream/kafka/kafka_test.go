@@ -106,6 +106,115 @@ func TestName(t *testing.T) {
 	}
 }
 
+// ---- SASL config validation ----
+
+func TestNew_AcceptsMSKSASLConfig(t *testing.T) {
+	_, err := kafkainput.New(kafkainput.Config{
+		Brokers: []string{"b-1.cluster.kafka.us-east-1.amazonaws.com:9098"},
+		Topics:  []kafkainput.Topic{{Name: "orders", GroupID: "g"}},
+		SASL:    &kafkainput.SASLConfig{Mechanism: "AWS_MSK_IAM", Region: "us-east-1"},
+	})
+	if err != nil {
+		t.Fatalf("MSK config should validate: %v", err)
+	}
+}
+
+func TestNew_RejectsUnknownSASLMechanism(t *testing.T) {
+	_, err := kafkainput.New(kafkainput.Config{
+		Brokers: []string{"b:9092"},
+		Topics:  []kafkainput.Topic{{Name: "t", GroupID: "g"}},
+		SASL:    &kafkainput.SASLConfig{Mechanism: "SCRAM-SHA-512", Region: "us-east-1"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported SASL mechanism") {
+		t.Fatalf("want unsupported-mechanism error, got %v", err)
+	}
+}
+
+func TestNew_RejectsMSKWithoutRegion(t *testing.T) {
+	_, err := kafkainput.New(kafkainput.Config{
+		Brokers: []string{"b:9098"},
+		Topics:  []kafkainput.Topic{{Name: "t", GroupID: "g"}},
+		SASL:    &kafkainput.SASLConfig{Mechanism: "AWS_MSK_IAM"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Region") {
+		t.Fatalf("want region-required error, got %v", err)
+	}
+}
+
+// ---- SASL wires through to ReaderConfig.Dialer ----
+
+// captureReader returns a factory that captures the ReaderConfig
+// passed to it. The returned func blocks until the factory is called
+// (or ctx cancels); using a channel keeps the read race-free without
+// a mutex.
+func captureReader() (factory func(kg.ReaderConfig) kafkainput.Reader, wait func(*testing.T) kg.ReaderConfig) {
+	ch := make(chan kg.ReaderConfig, 1)
+	factory = func(cfg kg.ReaderConfig) kafkainput.Reader {
+		select {
+		case ch <- cfg:
+		default:
+		}
+		return &fakeReader{}
+	}
+	wait = func(t *testing.T) kg.ReaderConfig {
+		t.Helper()
+		select {
+		case cfg := <-ch:
+			return cfg
+		case <-time.After(2 * time.Second):
+			t.Fatalf("factory never invoked")
+			return kg.ReaderConfig{}
+		}
+	}
+	return
+}
+
+func TestStart_MSKConfigWiresDialer(t *testing.T) {
+	factory, wait := captureReader()
+	in, err := kafkainput.New(kafkainput.Config{
+		Brokers:   []string{"b-1.cluster.kafka.us-east-1.amazonaws.com:9098"},
+		Topics:    []kafkainput.Topic{{Name: "orders", GroupID: "g"}},
+		SASL:      &kafkainput.SASLConfig{Mechanism: "AWS_MSK_IAM", Region: "us-east-1"},
+		NewReader: factory,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = in.Start(ctx, make(chan input.EvaluationRecord)) }()
+	captured := wait(t)
+	if captured.Dialer == nil {
+		t.Fatalf("MSK config should yield a non-nil Dialer in ReaderConfig")
+	}
+	if captured.Dialer.SASLMechanism == nil {
+		t.Errorf("Dialer.SASLMechanism is nil")
+	} else if captured.Dialer.SASLMechanism.Name() != "AWS_MSK_IAM" {
+		t.Errorf("mechanism name: %q", captured.Dialer.SASLMechanism.Name())
+	}
+	if captured.Dialer.TLS == nil {
+		t.Errorf("Dialer.TLS must be set for MSK")
+	}
+}
+
+func TestStart_NoSASL_LeavesDialerNil(t *testing.T) {
+	// Without SASL config, ReaderConfig.Dialer stays at its zero
+	// value so kafka-go uses its built-in default.
+	factory, wait := captureReader()
+	in, _ := kafkainput.New(kafkainput.Config{
+		Brokers:   []string{"localhost:9092"},
+		Topics:    []kafkainput.Topic{{Name: "orders", GroupID: "g"}},
+		NewReader: factory,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = in.Start(ctx, make(chan input.EvaluationRecord)) }()
+	captured := wait(t)
+	if captured.Dialer != nil {
+		t.Errorf("non-MSK config should not set a Dialer, got %+v", captured.Dialer)
+	}
+}
+
 // ---- Start: happy path ----
 
 func TestStart_EmitsRecordsFromJSONMessages(t *testing.T) {
