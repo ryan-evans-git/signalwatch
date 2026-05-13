@@ -1,11 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
 // Build output is written to ../internal/ui/dist so that the Go service
 // binary can embed it via go:embed all:dist.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     outDir: path.resolve(__dirname, "../internal/ui/dist"),
     emptyOutDir: true,

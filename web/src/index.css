@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 — CSS-first config. The single @import replaces v3's
+   `@tailwind base/components/utilities` triple and pulls in the
+   default preflight + theme. Custom utilities go in @layer
+   components/utilities below. */
+@import "tailwindcss";
 
 @layer components {
   .input {
