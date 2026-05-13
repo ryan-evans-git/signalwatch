@@ -26,15 +26,16 @@ One tool, one rule model, one subscriber model. Pluggable everywhere.
 
 | Layer | State |
 |---|---|
-| Engine, dispatcher, SQLite store, three channels, three inputs, HTTP API, embedded UI, CLI | landed |
-| 90% branch coverage | in progress (PI 1, sprints 2–3) |
-| CICD pipeline (lint, security, vulnerability, license, secrets, SAST) | in progress (PI 1, sprint 1) |
-| Public repo, branch-protected `main` | pending sprint 1 close |
-| Postgres + MySQL stores | PI 1, sprints 4–5 |
-| Kafka / SQS / RabbitMQ stream inputs | PI 1, sprints 5–6 |
-| `v0.2` release | PI 1, sprint 6 |
+| Engine, dispatcher (dwell/dedup/repeat), three channels (SMTP/Slack/webhook), three inputs (event/SQL/scrape), HTTP API, embedded UI, CLI | landed |
+| SQLite + Postgres + MySQL stores | landed (PI 1, sprints 4–5) |
+| Kafka / SQS / RabbitMQ stream inputs | landed (PI 1, sprint 6) |
+| Shared-token API auth + UI login gate | landed (PI 1, sprint 6) |
+| Cross-driver store conformance suite (`internal/store/storetest`) | landed |
+| 96.3% test coverage; 15-gate CICD on every PR | landed |
+| Public repo, branch-protected `main` | landed |
+| `v0.2.0` release tag | pending (PI 1 close) |
 
-Full roadmap: [`docs/ROADMAP.md`](./docs/ROADMAP.md). Active sprint: [`docs/PI-PLAN.md`](./docs/PI-PLAN.md).
+Full roadmap: [`docs/ROADMAP.md`](./docs/ROADMAP.md). Active sprint: [`docs/PI-PLAN.md`](./docs/PI-PLAN.md). What landed since v0.1: [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Quickstart (local development)
 
@@ -46,6 +47,26 @@ make build         # builds the React UI then the Go binaries
 ```
 
 Open `http://localhost:8080/` for the UI. Push events to `http://localhost:8080/v1/events`.
+
+### Locking down the API
+
+By default `signalwatch` listens on the loopback interface and serves the API unauthenticated — fine for single-tenant local dev. For shared deployments, set a bearer token via `SIGNALWATCH_API_TOKEN`:
+
+```bash
+export SIGNALWATCH_API_TOKEN=$(openssl rand -base64 32)
+./bin/signalwatch --config examples/config.yaml
+```
+
+Every `/v1/*` request must now carry `Authorization: Bearer <token>`. `/healthz` and `/v1/auth-status` stay open. The bundled UI prompts for the token on first load and stores it in `localStorage`. Per-user RBAC, named tokens, expiry, and SSO are post-PI-1 (see [`docs/ROADMAP.md`](./docs/ROADMAP.md)).
+
+### Screenshots
+
+A walkthrough of the bundled UI lives in [`docs/screenshots/`](./docs/screenshots/) and is rendered inline below. Regenerate the PNGs by running `make screenshots` (requires Docker for the binary and Node for Playwright).
+
+| | |
+|---|---|
+| ![Rules](./docs/screenshots/rules.png) | ![Live State](./docs/screenshots/states.png) |
+| ![Subscribers](./docs/screenshots/subscribers.png) | ![Incidents](./docs/screenshots/incidents.png) |
 
 A minimal `config.yaml`:
 

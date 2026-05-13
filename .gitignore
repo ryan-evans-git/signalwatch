@@ -44,3 +44,10 @@ internal/ui/dist/*
 config.local.yaml
 .env
 .env.local
+
+# Playwright cache used by `make screenshots`. The PNG outputs in
+# docs/screenshots/ ARE tracked; only the browser binaries and the
+# node_modules tree aren't.
+scripts/.playwright-cache/
+scripts/node_modules/
+scripts/package-lock.json

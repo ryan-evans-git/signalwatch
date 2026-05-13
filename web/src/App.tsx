@@ -72,7 +72,7 @@ function AppShell() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto max-w-6xl px-6 py-4 flex items-baseline gap-4">
           <h1 className="text-xl font-semibold tracking-tight">signalwatch</h1>
-          <span className="text-xs uppercase text-slate-400 tracking-widest">v0.1</span>
+          <span className="text-xs uppercase text-slate-400 tracking-widest">pre-release</span>
         </div>
         <nav className="mx-auto max-w-6xl px-6 -mb-px flex gap-2">
           {TABS.map((t) => (
