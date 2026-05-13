@@ -1,0 +1,12 @@
+# Allowlist for known false positives. Each entry is a gitleaks
+# fingerprint (commit:file:rule:line) that has been reviewed and
+# confirmed not to be a real secret. Add a one-line comment above
+# each entry naming the value and why it's safe.
+
+# Documentation example: a placeholder PagerDuty routing key in the
+# README's example YAML matched gitleaks' generic-api-key heuristic.
+# The value was never a real key (it's "12345abcdef67890fedcba0987654321",
+# a typed-by-hand placeholder); the README was updated in c8a8c8c to
+# use an env-var reference instead, but the historical commit can't
+# be edited without rewriting the PR's history.
+31984ba885893346d746796cd5711d1ee8b9fa04:README.md:generic-api-key:95
