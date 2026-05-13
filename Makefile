@@ -6,7 +6,7 @@ NPM ?= npm
 # Local-dev parity with the CI pipeline. The CI workflow is the source of
 # truth — when a target diverges from CI, fix CI and update this Makefile.
 
-.PHONY: build web go test test-race test-pg test-mysql test-kafka test-sqs test-rabbitmq test-duckdb coverage coverage-html lint vet \
+.PHONY: build web go test test-race test-pg test-mysql test-kafka test-sqs test-rabbitmq test-pubsub test-duckdb coverage coverage-html lint vet \
         gosec govulncheck licenses verify clean tools screenshots
 
 build: web go
@@ -51,6 +51,12 @@ test-sqs:
 # it on every PR via test-rabbitmq.
 test-rabbitmq:
 	$(GO) test -race -tags=integration ./internal/input/stream/rabbitmq/...
+
+# Run the Pub/Sub streaming-input integration tests against the GCP
+# Pub/Sub emulator via testcontainers-go. Same Docker requirement;
+# CI runs it on every PR via test-pubsub.
+test-pubsub:
+	$(GO) test -race -tags=integration ./internal/input/stream/pubsub/...
 
 # Run the DuckDB datasource tests. DuckDB is CGO-only; this target
 # enables CGO + the `duckdb` build tag to link the real driver.

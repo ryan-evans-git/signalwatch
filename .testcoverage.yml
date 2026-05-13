@@ -45,6 +45,11 @@ exclude:
     # Exercisable only against a real broker; the test-rabbitmq CI job
     # covers it via testcontainers-go.
     - internal/input/stream/rabbitmq/realadapter.go
+    # Pub/Sub production adapter file — same rationale as rabbitmq's
+    # realadapter.go: pure passthroughs around *pubsub.Client and
+    # *pubsub.Message, exercisable only against a real Pub/Sub or the
+    # GCP emulator. The test (pubsub integration) job covers it.
+    - internal/input/stream/pubsub/realadapter.go
 
 # Regenerate cover.out via:
 #   go test -coverprofile=cover.out -coverpkg=./... -covermode=atomic ./...
