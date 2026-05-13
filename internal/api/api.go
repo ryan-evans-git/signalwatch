@@ -44,6 +44,7 @@ func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler, opts ...Moun
 
 	mux.HandleFunc("GET /v1/rules", gate(h.listRules))
 	mux.HandleFunc("POST /v1/rules", gate(h.createRule))
+	mux.HandleFunc("POST /v1/rules/validate", gate(h.validateRule))
 	mux.HandleFunc("GET /v1/rules/{id}", gate(h.getRule))
 	mux.HandleFunc("PUT /v1/rules/{id}", gate(h.updateRule))
 	mux.HandleFunc("DELETE /v1/rules/{id}", gate(h.deleteRule))
@@ -254,6 +255,35 @@ func (h *handlers) deleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateRule compiles a candidate rule (mainly the condition) without
+// persisting it. Returns 200 + {"ok": true} on success, 400 + {error}
+// on failure. Lets the UI surface compile errors (especially handy for
+// the Expression condition's expr-lang programs) before submit.
+func (h *handlers) validateRule(w http.ResponseWriter, r *http.Request) {
+	var p rulePayload
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := p.toRule()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	// Validate the rule shape (name, schedule, severity, etc.) and
+	// then compile the condition. Both must succeed for the rule to
+	// be persistable.
+	if err := rec.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if _, err := rec.Condition.Compile(nil); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // ---- subscribers ----

@@ -17,6 +17,10 @@ export type Condition =
   | {
       type: "sql_returns_rows";
       spec: { data_source: string; query: string; min_rows: number };
+    }
+  | {
+      type: "expression";
+      spec: { expr: string; mode?: "push" | "scheduled" };
     };
 
 export interface Rule {
@@ -121,6 +125,10 @@ export const api = {
     create: (r: Partial<Rule>) => request<Rule>("POST", "/v1/rules", r),
     update: (id: string, r: Partial<Rule>) => request<Rule>("PUT", `/v1/rules/${id}`, r),
     remove: (id: string) => request<void>("DELETE", `/v1/rules/${id}`),
+    // validate compiles a candidate rule (especially the Expression
+    // condition's expr-lang program) without persisting. Throws on
+    // validation/compile errors with the server's message.
+    validate: (r: Partial<Rule>) => request<{ ok: boolean }>("POST", "/v1/rules/validate", r),
   },
   subscribers: {
     list: () => request<Subscriber[]>("GET", "/v1/subscribers"),

@@ -371,6 +371,12 @@ func UnmarshalCondition(data []byte) (Condition, error) {
 			return nil, err
 		}
 		return s, nil
+	case "expression":
+		var e Expression
+		if err := json.Unmarshal(w.Spec, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
 	default:
 		return nil, fmt.Errorf("condition: unknown type %q", w.Type)
 	}

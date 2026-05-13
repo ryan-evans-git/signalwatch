@@ -224,6 +224,96 @@ func sampleRulePayload(id string) map[string]any {
 	}
 }
 
+func sampleExpressionRulePayload(id, expr string) map[string]any {
+	return map[string]any{
+		"id":        id,
+		"name":      "rule-" + id,
+		"enabled":   true,
+		"input_ref": "events",
+		"condition": map[string]any{
+			"type": "expression",
+			"spec": map[string]any{"expr": expr},
+		},
+	}
+}
+
+func TestRulesValidate_AcceptsValidExpression(t *testing.T) {
+	f := newFixture(t)
+	resp := f.do(t, http.MethodPost, "/v1/rules/validate",
+		sampleExpressionRulePayload("r1", `record.level == "ERROR"`))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("validate: status=%d body=%s", resp.StatusCode, resp.Body)
+	}
+}
+
+func TestRulesValidate_RejectsBadExpression(t *testing.T) {
+	f := newFixture(t)
+	resp := f.do(t, http.MethodPost, "/v1/rules/validate",
+		sampleExpressionRulePayload("r1", "1 +"))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("validate(bad syntax): want 400, got %d body=%s", resp.StatusCode, resp.Body)
+	}
+}
+
+func TestRulesValidate_RejectsUnknownConditionType(t *testing.T) {
+	f := newFixture(t)
+	resp := f.do(t, http.MethodPost, "/v1/rules/validate", map[string]any{
+		"name":      "x",
+		"input_ref": "events",
+		"condition": map[string]any{"type": "bogus", "spec": map[string]any{}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("validate(unknown type): want 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestRulesValidate_RejectsScheduledWithoutSchedule(t *testing.T) {
+	// Scheduled-mode expression with no schedule_seconds fails Validate().
+	f := newFixture(t)
+	resp := f.do(t, http.MethodPost, "/v1/rules/validate", map[string]any{
+		"name":      "x",
+		"input_ref": "events",
+		"condition": map[string]any{
+			"type": "expression",
+			"spec": map[string]any{"expr": `avg_over("mpg", "30d") < 5`, "mode": "scheduled"},
+		},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("validate(scheduled no schedule): want 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestRulesValidate_RejectsMalformedJSON(t *testing.T) {
+	f := newFixture(t)
+	req, _ := http.NewRequest(http.MethodPost, f.srv.URL+"/v1/rules/validate", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("validate(bad json): want 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestRules_ExpressionRoundTripThroughCRUD(t *testing.T) {
+	f := newFixture(t)
+	resp := f.do(t, http.MethodPost, "/v1/rules",
+		sampleExpressionRulePayload("expr-1", `record.level == "ERROR"`))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST: %d %s", resp.StatusCode, resp.Body)
+	}
+	// GET should hand back the same condition shape.
+	resp = f.get(t, "/v1/rules/expr-1")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET: %d %s", resp.StatusCode, resp.Body)
+	}
+	if !strings.Contains(string(resp.Body), `"type":"expression"`) {
+		t.Errorf("body should preserve expression condition: %s", resp.Body)
+	}
+}
+
 func TestRules_FullCRUD(t *testing.T) {
 	f := newFixture(t)
 
