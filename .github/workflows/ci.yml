@@ -66,7 +66,15 @@ jobs:
         # when -coverpkg covers more than one package. `-coverpkg=./...`
         # captures cross-package calls (e.g. tests in `engine/` exercising
         # `internal/dispatcher` count toward dispatcher's coverage).
-        run: go test -race -covermode=atomic -coverprofile=cover.out -coverpkg=./... ./...
+        #
+        # `-count=1` disables Go's test cache. setup-go's cache restores
+        # the Go build/test cache across runs; cached cover profiles
+        # for unchanged packages refer to the previous revision's line
+        # ranges, which clash with fresh profiles emitted by changed
+        # packages and inflate the merged statement count, breaking the
+        # coverage gate. Forcing fresh runs is cheap (matrix already
+        # builds via cache) and correct.
+        run: go test -race -count=1 -covermode=atomic -coverprofile=cover.out -coverpkg=./... ./...
 
       - name: Coverage gate (≥ 90% repo / 90% package / 70% file)
         # Configured by .testcoverage.yml. Fails the job when any threshold

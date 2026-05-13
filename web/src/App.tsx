@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type LiveState, type Rule, type Subscriber, type Subscription, type Incident } from "./api";
+import { AUTH_FAILED_EVENT, fetchAuthStatus, getToken } from "./auth";
+import Login from "./Login";
 
 type TabId = "rules" | "subscribers" | "subscriptions" | "incidents" | "states" | "emit";
 
@@ -12,7 +14,58 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "emit", label: "Emit Event" },
 ];
 
+// AuthState models the three possible gate states:
+//   loading: probing /v1/auth-status
+//   open:    server doesn't require auth, OR token is present
+//   gated:   auth required and no token — show <Login/>
+type AuthState = "loading" | "open" | "gated";
+
 export default function App() {
+  const [auth, setAuth] = useState<AuthState>("loading");
+
+  // On mount, probe the server's auth state. If auth is required and
+  // we already have a stored token, optimistically render the app —
+  // api.ts will dispatch AUTH_FAILED_EVENT on 401 if the token is
+  // stale, which flips us back to the gate.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await fetchAuthStatus();
+        if (cancelled) return;
+        if (!status.auth_required || getToken()) {
+          setAuth("open");
+        } else {
+          setAuth("gated");
+        }
+      } catch {
+        // If the probe itself fails (network blip), fall back to the
+        // gate — a user who supplies a token can try again.
+        if (!cancelled) setAuth("gated");
+      }
+    })();
+    const onFailed = () => setAuth("gated");
+    window.addEventListener(AUTH_FAILED_EVENT, onFailed);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AUTH_FAILED_EVENT, onFailed);
+    };
+  }, []);
+
+  if (auth === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 text-sm">
+        Loading…
+      </div>
+    );
+  }
+  if (auth === "gated") {
+    return <Login onAuthenticated={() => setAuth("open")} />;
+  }
+  return <AppShell />;
+}
+
+function AppShell() {
   const [tab, setTab] = useState<TabId>("rules");
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">

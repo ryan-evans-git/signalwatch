@@ -163,7 +163,14 @@ func run() error {
 	}
 
 	mux := http.NewServeMux()
-	api.Mount(mux, eng, ui.Handler())
+	// Shared bearer-token auth. Empty env var leaves /v1/* open, which
+	// matches the existing single-tenant localhost-binding default.
+	// Per-user RBAC is post-PI-1; see ROADMAP.md.
+	apiToken := os.Getenv("SIGNALWATCH_API_TOKEN")
+	api.Mount(mux, eng, ui.Handler(), api.WithAPIToken(apiToken))
+	if apiToken != "" {
+		logger.Info("signalwatch.auth_enabled", "scheme", "bearer")
+	}
 
 	addr := cfg.HTTP.Addr
 	if addr == "" {
