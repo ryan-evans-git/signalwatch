@@ -37,6 +37,9 @@ exclude:
     # ./...` invocation that this gate measures. The test-postgres job
     # is itself required to pass on every PR via branch protection.
     - internal/store/postgres/
+    # MySQL store: same rationale as postgres above. Tests are tagged
+    # `integration` and run via the test-mysql CI job.
+    - internal/store/mysql/
 
 # Regenerate cover.out via:
 #   go test -coverprofile=cover.out -coverpkg=./... -covermode=atomic ./...
