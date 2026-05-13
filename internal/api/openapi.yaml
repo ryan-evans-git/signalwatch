@@ -1,0 +1,1146 @@
+# signalwatch HTTP API — OpenAPI 3.1.0 specification.
+#
+# This file is the canonical, version-controlled description of every
+# /v1/* endpoint the signalwatch service exposes. It is served verbatim
+# by the running binary at GET /openapi.yaml (and as JSON at
+# GET /openapi.json) — both routes are unauthenticated, like /healthz,
+# so service-discovery flows and MCP adapters can fetch the schema
+# without holding a credential.
+#
+# The CI suite enforces parity between this file and `internal/api`:
+# every handler registered in api.Mount must have a matching operationId
+# below, and every operationId must map to a registered handler. See
+# internal/api/openapi_test.go for the drift check.
+#
+# MCP integration notes are in docs/MCP.md. Briefly: any OpenAPI→MCP
+# bridge (e.g. `openapi-mcp`, `mcp-openapi-proxy`) can consume this file
+# and expose each operation as an MCP tool whose name is the operationId
+# and whose docs are the summary + description.
+
+openapi: 3.1.0
+info:
+  title: signalwatch
+  version: 0.4.0
+  summary: Open-source alert & notifications framework — HTTP API
+  description: |
+    signalwatch defines rules over pushed events, scheduled SQL queries,
+    scraped JSON metrics, and message-queue streams; dispatches matching
+    transitions to subscribers across SMTP / Slack / generic webhook /
+    PagerDuty / MS Teams / Discord / Twilio SMS; and persists the full
+    audit trail.
+
+    The HTTP API is mounted at `/v1` on the same port that serves the
+    bundled React UI. `/healthz`, `/v1/auth-status`, and
+    `/openapi.yaml` / `/openapi.json` are always open; everything else
+    under `/v1/*` is gated when auth is configured (either via
+    `SIGNALWATCH_API_TOKEN` for the legacy shared-token mechanism, or
+    per-user tokens issued through `/v1/auth/tokens`).
+
+    The full architectural background — engine design, rule condition
+    types, the dispatcher state machine, retention semantics — lives in
+    the repository docs. This spec is the wire contract.
+  contact:
+    name: signalwatch maintainers
+    url: https://github.com/ryan-evans-git/signalwatch
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Default local development bind (loopback-only)
+  - url: https://signalwatch.example.com
+    description: Replace with your deployment URL
+
+tags:
+  - name: health
+    description: Liveness and auth-discovery probes. Always unauthenticated.
+  - name: schema
+    description: OpenAPI schema discovery for MCP adapters and codegen tools.
+  - name: events
+    description: Push records into the engine for rule evaluation.
+  - name: rules
+    description: CRUD over alerting rules — the conditions evaluated against records.
+  - name: subscribers
+    description: People or systems that can receive notifications, with their channel bindings.
+  - name: subscriptions
+    description: Bindings of subscribers to rules, with per-subscription delivery preferences (dwell, repeat, resolve, one-shot).
+  - name: incidents
+    description: One row per OK→FIRING→OK cycle of a rule. Read-only audit history with CSV/JSON export.
+  - name: notifications
+    description: Read-only audit log of every delivery attempt.
+  - name: live-states
+    description: Current FIRING/OK state of every rule. Read-only snapshot.
+  - name: auth
+    description: Per-user API tokens (issue, list, revoke). Always requires admin scope.
+
+# ----------------------------------------------------------------------
+# Security
+# ----------------------------------------------------------------------
+
+security:
+  - bearerToken: []
+
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: signalwatch-token
+      description: |
+        Either the shared `SIGNALWATCH_API_TOKEN` value (legacy, treated
+        as admin scope) or a per-user token issued through
+        `POST /v1/auth/tokens` (sha256-hashed at rest, raw secret
+        returned exactly once on issue).
+
+        Per-user tokens carry one of two scopes:
+        - `admin` — every operation.
+        - `read` — GET-only; mutating verbs return 403.
+
+  # ------------------------------------------------------------
+  # Reusable parameters
+  # ------------------------------------------------------------
+  parameters:
+    LimitParam:
+      name: limit
+      in: query
+      description: |
+        Maximum number of rows to return. Defaults to 100; clamped to
+        a maximum of 1000. Invalid or non-positive values fall back to
+        the default.
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 1000
+        default: 100
+    IDPathParam:
+      name: id
+      in: path
+      required: true
+      description: Opaque identifier. UUIDv4 when minted server-side.
+      schema:
+        type: string
+        minLength: 1
+
+  # ------------------------------------------------------------
+  # Reusable schemas
+  # ------------------------------------------------------------
+  schemas:
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+      examples:
+        - { error: "invalid token" }
+
+    Severity:
+      type: string
+      enum: [info, warning, critical]
+      description: |
+        Rule severity. Influences default channel rendering (e.g. PagerDuty
+        priority mapping, embed colors) but the dispatcher's state-machine
+        logic is severity-agnostic.
+
+    NotificationKind:
+      type: string
+      enum: [firing, repeat, resolved]
+      description: |
+        Why the notification was sent. `firing` is the first delivery in
+        an incident; `repeat` is a subscription-renotify due to
+        `repeat_interval_seconds`; `resolved` is the resolve ping (only
+        sent when `notify_on_resolve` is true).
+
+    LiveStateLabel:
+      type: string
+      enum: [ok, firing]
+      description: |
+        Authoritative state of a rule's most recent (or current) incident.
+
+    Scope:
+      type: string
+      enum: [admin, read]
+      description: |
+        API-token scope. `admin` grants every route; `read` is GET-only.
+
+    # -------- Records --------
+
+    Record:
+      type: object
+      additionalProperties: true
+      description: |
+        Free-form key/value record. Field types are inspected at rule-
+        evaluation time. JSON numbers stay numeric; strings stay strings.
+      examples:
+        - { level: ERROR, msg: "out of memory", value: 91.4 }
+
+    EventPayload:
+      type: object
+      required: [record]
+      properties:
+        input_ref:
+          type: string
+          description: |
+            Name of the input this record is associated with (must match
+            an input registered with the engine, e.g. the value of
+            `inputs.event.name` in the YAML config). Empty uses the
+            event input's default name.
+        record:
+          $ref: '#/components/schemas/Record'
+
+    # -------- Rules --------
+
+    RuleCondition:
+      type: object
+      description: |
+        Discriminated rule-condition shape. Compiled once at load.
+
+        | type | spec fields |
+        |---|---|
+        | `threshold` | `{ field, op (gt/lt/ge/le/eq/ne), value }` |
+        | `window_aggregate` | `{ agg (avg/sum/min/max/count/p50/p95/p99), field, window, op, value }` |
+        | `pattern_match` | `{ field, kind (regex/contains), pattern }` |
+        | `sql_returns_rows` | `{ datasource, query, min_rows }` |
+        | `expression` | `{ expr: "<expr-lang expression>" }` |
+      required: [type, spec]
+      properties:
+        type:
+          type: string
+          enum: [threshold, window_aggregate, pattern_match, sql_returns_rows, expression]
+        spec:
+          type: object
+          additionalProperties: true
+      examples:
+        - { type: pattern_match, spec: { field: level, kind: contains, pattern: ERROR } }
+        - { type: window_aggregate, spec: { agg: avg, field: mpg, window: "30d", op: lt, value: 5 } }
+        - { type: expression, spec: { expr: 'avg_over("cpu", "5m") > 90' } }
+
+    Rule:
+      type: object
+      required: [id, name, enabled, severity, input_ref, condition]
+      properties:
+        id:
+          type: string
+          description: |
+            Stable identifier. Provided by the client on Create, or
+            generated server-side (UUIDv4) when omitted.
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+          description: |
+            Disabled rules stay in the store but are skipped by the
+            evaluator until re-enabled.
+        severity:
+          $ref: '#/components/schemas/Severity'
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Free-form key/value labels. Subscriptions can match by
+            label selector instead of binding to a specific rule id.
+        input_ref:
+          type: string
+          description: |
+            Name of the input feeding this rule. Push rules
+            (`threshold`, `pattern_match`, `expression` in push mode)
+            evaluate every matching record; pull rules
+            (`window_aggregate`, `sql_returns_rows`, `expression` in
+            scheduled mode) evaluate on their own schedule.
+        condition:
+          $ref: '#/components/schemas/RuleCondition'
+        schedule_seconds:
+          type: number
+          format: double
+          description: |
+            For pull-evaluated rules: how often the rule is re-
+            evaluated. Ignored for push-mode rules.
+
+    RuleValidateResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          description: |
+            `true` if the candidate rule compiled successfully; the
+            backend mints a fresh `id` when one isn't supplied.
+        error:
+          type: string
+          description: |
+            Compile error message, when `ok` is `false`. The shape of
+            the error depends on the condition type (expression
+            parser, regex compiler, etc.).
+        id:
+          type: string
+          description: ID the rule would carry if persisted as-is.
+
+    # -------- Subscribers / channel bindings / subscriptions --------
+
+    ChannelBinding:
+      type: object
+      required: [channel, address]
+      properties:
+        channel:
+          type: string
+          description: |
+            Channel registry key (matches a `channels[*].name` entry
+            in the service YAML config).
+        address:
+          type: string
+          description: |
+            Channel-specific destination — e.g. email address for
+            `smtp`, phone number for `sms`, PagerDuty routing key
+            override for `pagerduty`, ignored for `slack` / `teams` /
+            `discord` (the webhook URL is on the channel itself).
+
+    Subscriber:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelBinding'
+
+    Subscription:
+      type: object
+      required: [subscriber_id]
+      properties:
+        id:
+          type: string
+        subscriber_id:
+          type: string
+        rule_id:
+          type: string
+          description: |
+            Bind to a specific rule. Exactly one of `rule_id` or
+            `label_selector` must be set.
+        label_selector:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Match any rule whose `labels` is a superset of these
+            key/value pairs. Exactly one of `rule_id` or
+            `label_selector` must be set.
+        dwell_seconds:
+          type: number
+          format: double
+          minimum: 0
+          description: |
+            Minimum time the rule must be continuously firing before
+            the first notification fires. Per-subscription, so different
+            humans can require different sensitivities to the same rule.
+        repeat_interval_seconds:
+          type: number
+          format: double
+          minimum: 0
+          description: |
+            If > 0, renotify every N seconds while the rule stays
+            firing. `0` (the default) means "no renotifies — one
+            firing notification per incident."
+        notify_on_resolve:
+          type: boolean
+          default: true
+          description: |
+            Send a `resolved` notification when the incident closes.
+            Only sent if at least one firing notification had been
+            delivered for that incident.
+        one_shot:
+          type: boolean
+          default: false
+          description: |
+            One-time-event mode. When `true`, the dispatcher delivers
+            **exactly one** notification across this subscription's
+            lifetime — no renotifies, no resolve ping, no refire when
+            a new incident opens for the same rule. Use for "let me
+            know once when A happens; I don't need a recurring
+            stream." Defaults to false (multi-incident behavior
+            unchanged).
+        channel_filter:
+          type: array
+          items:
+            type: string
+          description: |
+            If non-empty, restricts which of the subscriber's channel
+            bindings this subscription uses.
+
+    # -------- Incidents / notifications / live state --------
+
+    Incident:
+      type: object
+      required: [id, rule_id, triggered_at]
+      properties:
+        id:
+          type: string
+        rule_id:
+          type: string
+        triggered_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          description: Null until the rule transitions FIRING→OK.
+        last_value:
+          type: string
+          description: |
+            The value the rule last evaluated to — useful for
+            diagnostics. Channel renderers also include this.
+
+    Notification:
+      type: object
+      required: [id, incident_id, subscription_id, channel, kind, sent_at, status]
+      properties:
+        id:
+          type: string
+        incident_id:
+          type: string
+        subscription_id:
+          type: string
+        subscriber_id:
+          type: string
+        channel:
+          type: string
+        address:
+          type: string
+        kind:
+          $ref: '#/components/schemas/NotificationKind'
+        sent_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ok, error]
+        error:
+          type: string
+
+    LiveState:
+      type: object
+      required: [rule_id, state]
+      properties:
+        rule_id:
+          type: string
+        state:
+          $ref: '#/components/schemas/LiveStateLabel'
+        triggered_at:
+          type: string
+          format: date-time
+        last_eval_at:
+          type: string
+          format: date-time
+        last_value:
+          type: string
+        last_error:
+          type: string
+        incident_id:
+          type: string
+
+    # -------- Auth tokens --------
+
+    TokenView:
+      type: object
+      required: [id, name, scopes, created_at, revoked]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Scope'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        revoked:
+          type: boolean
+
+    IssueTokenRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          description: |
+            Human-readable label, e.g. `ci-deploybot`. Surfaced in
+            list responses.
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Scope'
+        expires_in:
+          type: string
+          description: |
+            Go-duration string (`"720h"`, `"24h30m"`). Omit for a
+            non-expiring token.
+
+    IssueTokenResponse:
+      type: object
+      required: [token, secret]
+      properties:
+        token:
+          $ref: '#/components/schemas/TokenView'
+        secret:
+          type: string
+          description: |
+            The raw token value. Returned **exactly once** at issue
+            time; signalwatch only persists `sha256(secret)`. Capture
+            it immediately — there is no recovery path.
+
+    AuthStatus:
+      type: object
+      required: [auth_required]
+      properties:
+        auth_required:
+          type: boolean
+          description: |
+            Whether the server requires bearer-token auth on `/v1/*`.
+            Open endpoint so the bundled UI can decide whether to
+            render its login gate.
+
+  # ------------------------------------------------------------
+  # Reusable responses
+  # ------------------------------------------------------------
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: |
+        Authenticated, but the caller's token does not have the scope
+        required for this operation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Malformed request body or invalid query parameter.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Server-side error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+# ======================================================================
+# Paths
+# ======================================================================
+
+paths:
+
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      description: Returns `200 OK` with body `ok`. Always unauthenticated.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is alive.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /openapi.yaml:
+    get:
+      tags: [schema]
+      summary: Fetch this OpenAPI document (YAML)
+      description: |
+        Returns the canonical, version-controlled OpenAPI spec the
+        running server was built from. Always unauthenticated so MCP
+        adapters and codegen tools can discover the API without
+        credentials.
+      operationId: getOpenAPIYAML
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 document.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /openapi.json:
+    get:
+      tags: [schema]
+      summary: Fetch this OpenAPI document (JSON)
+      description: JSON encoding of the same document served at `/openapi.yaml`.
+      operationId: getOpenAPIJSON
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 document, JSON-encoded.
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/auth-status:
+    get:
+      tags: [health]
+      summary: Probe whether the API requires auth
+      description: |
+        Open endpoint that reports whether the server has any auth
+        mechanism configured. Used by the UI to decide whether to
+        show its login gate before issuing any other request.
+      operationId: getAuthStatus
+      security: []
+      responses:
+        '200':
+          description: Auth status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStatus'
+
+  /v1/events:
+    post:
+      tags: [events]
+      summary: Submit an event for rule evaluation
+      description: |
+        Pushes a record into the engine's event input. Returns 202 once
+        the record is enqueued; channel sends happen asynchronously
+        after evaluation. Requires `admin` scope.
+      operationId: postEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventPayload'
+      responses:
+        '202':
+          description: Record accepted for evaluation.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/rules:
+    get:
+      tags: [rules]
+      summary: List rules
+      description: Returns every rule (enabled and disabled).
+      operationId: listRules
+      responses:
+        '200':
+          description: Rules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Rule'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [rules]
+      summary: Create a rule
+      operationId: createRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rule'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/rules/validate:
+    post:
+      tags: [rules]
+      summary: Compile-test a rule without persisting it
+      description: |
+        Runs the rule's condition through its compile path and reports
+        the result. Used by the UI rule form's "Validate" button so
+        users see expression / regex / threshold errors before submit.
+        Does not write to the store. Requires `admin` scope (mirrors
+        rule mutation).
+      operationId: validateRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rule'
+      responses:
+        '200':
+          description: Validation result. `ok=false` is a 200 with details, not an HTTP error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleValidateResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/rules/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IDPathParam'
+    get:
+      tags: [rules]
+      summary: Get a rule
+      operationId: getRule
+      responses:
+        '200':
+          description: Rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [rules]
+      summary: Update a rule
+      operationId: updateRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rule'
+      responses:
+        '200':
+          description: Updated rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [rules]
+      summary: Delete a rule
+      operationId: deleteRule
+      responses:
+        '204':
+          description: Deleted.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/subscribers:
+    get:
+      tags: [subscribers]
+      summary: List subscribers
+      operationId: listSubscribers
+      responses:
+        '200':
+          description: Subscribers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Subscriber'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [subscribers]
+      summary: Create a subscriber
+      operationId: createSubscriber
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Subscriber'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscriber'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/subscribers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IDPathParam'
+    get:
+      tags: [subscribers]
+      summary: Get a subscriber
+      operationId: getSubscriber
+      responses:
+        '200':
+          description: Subscriber.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscriber'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [subscribers]
+      summary: Update a subscriber
+      operationId: updateSubscriber
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Subscriber'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscriber'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [subscribers]
+      summary: Delete a subscriber
+      operationId: deleteSubscriber
+      responses:
+        '204':
+          description: Deleted.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/subscriptions:
+    get:
+      tags: [subscriptions]
+      summary: List subscriptions
+      operationId: listSubscriptions
+      responses:
+        '200':
+          description: Subscriptions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Subscription'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [subscriptions]
+      summary: Create a subscription
+      description: |
+        Bind a subscriber to a rule (or label selector) with per-
+        subscription delivery preferences. Set `one_shot=true` for a
+        one-time-event subscription (single notification, ever).
+      operationId: createSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Subscription'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/subscriptions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IDPathParam'
+    get:
+      tags: [subscriptions]
+      summary: Get a subscription
+      operationId: getSubscription
+      responses:
+        '200':
+          description: Subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [subscriptions]
+      summary: Update a subscription
+      operationId: updateSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Subscription'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [subscriptions]
+      summary: Delete a subscription
+      operationId: deleteSubscription
+      responses:
+        '204':
+          description: Deleted.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/incidents:
+    get:
+      tags: [incidents]
+      summary: List recent incidents
+      description: |
+        Returns incidents most-recent-first. Optional `rule_id` query
+        parameter narrows the list to one rule's timeline (used by the
+        per-rule drill-down UI).
+      operationId: listIncidents
+      parameters:
+        - name: rule_id
+          in: query
+          required: false
+          description: Filter to incidents for this rule only.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Incidents.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Incident'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/incidents/export:
+    get:
+      tags: [incidents]
+      summary: Export incidents as CSV or JSON
+      description: |
+        Bulk-export endpoint backing the UI's "Export incidents CSV"
+        shortcut. Ships with `Content-Disposition: attachment`
+        when `format=csv`.
+      operationId: exportIncidents
+      parameters:
+        - name: format
+          in: query
+          required: false
+          description: Output format. Defaults to `json`.
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+        - name: rule_id
+          in: query
+          required: false
+          description: Restrict the export to a single rule.
+          schema:
+            type: string
+        - name: since
+          in: query
+          required: false
+          description: |
+            Accepts either RFC3339 (`2026-05-01T00:00:00Z`) or a Go
+            duration relative to now (`168h` = last week, `30d`,
+            `2w`).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Export payload.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Incident'
+            text/csv:
+              schema:
+                type: string
+                description: |
+                  CSV with header `id,rule_id,triggered_at,resolved_at,last_value`.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/incidents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IDPathParam'
+    get:
+      tags: [incidents]
+      summary: Get an incident
+      operationId: getIncident
+      responses:
+        '200':
+          description: Incident.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/notifications:
+    get:
+      tags: [notifications]
+      summary: List recent notification audit rows
+      operationId: listNotifications
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Notifications, most-recent-first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/states:
+    get:
+      tags: [live-states]
+      summary: Snapshot every rule's current FIRING/OK state
+      operationId: listLiveStates
+      responses:
+        '200':
+          description: One row per rule.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LiveState'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/auth/tokens:
+    get:
+      tags: [auth]
+      summary: List API tokens
+      description: |
+        Returns every persisted token (active and revoked). Secrets
+        and hashes are intentionally omitted; this endpoint is purely
+        for management UI / audit. Requires `admin` scope.
+      operationId: listTokens
+      responses:
+        '200':
+          description: Token metadata.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TokenView'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [auth]
+      summary: Issue a new API token
+      description: |
+        Mints a fresh token. The raw secret is returned **exactly
+        once** in the response body — there is no recovery path
+        because signalwatch only persists `sha256(secret)`. Requires
+        `admin` scope.
+      operationId: issueToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueTokenRequest'
+      responses:
+        '201':
+          description: Token issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueTokenResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/auth/tokens/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IDPathParam'
+    delete:
+      tags: [auth]
+      summary: Revoke a token
+      description: |
+        Marks the token revoked (idempotent). The dispatcher / auth
+        middleware refuses every subsequent request bearing this
+        token. Requires `admin` scope.
+      operationId: revokeToken
+      responses:
+        '204':
+          description: Revoked.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }

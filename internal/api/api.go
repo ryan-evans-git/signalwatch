@@ -50,47 +50,164 @@ func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler, opts ...Moun
 		return requireAuth(&s, requireScope(auth.ScopeAdmin, fn))
 	}
 
+	// Always-open routes. /healthz is a liveness probe; the openapi
+	// routes are discovery hooks for MCP adapters and codegen tools
+	// (they need the schema before they have any credential).
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("GET /openapi.yaml", openapiYAMLHandler)
+	mux.HandleFunc("GET /openapi.json", openapiJSONHandler)
 	mux.HandleFunc("GET /v1/auth-status", h.authStatus)
-	mux.HandleFunc("POST /v1/events", writeGate(h.postEvent))
 
-	mux.HandleFunc("GET /v1/rules", readGate(h.listRules))
-	mux.HandleFunc("POST /v1/rules", writeGate(h.createRule))
-	mux.HandleFunc("POST /v1/rules/validate", writeGate(h.validateRule))
-	mux.HandleFunc("GET /v1/rules/{id}", readGate(h.getRule))
-	mux.HandleFunc("PUT /v1/rules/{id}", writeGate(h.updateRule))
-	mux.HandleFunc("DELETE /v1/rules/{id}", writeGate(h.deleteRule))
-
-	mux.HandleFunc("GET /v1/subscribers", readGate(h.listSubscribers))
-	mux.HandleFunc("POST /v1/subscribers", writeGate(h.createSubscriber))
-	mux.HandleFunc("GET /v1/subscribers/{id}", readGate(h.getSubscriber))
-	mux.HandleFunc("PUT /v1/subscribers/{id}", writeGate(h.updateSubscriber))
-	mux.HandleFunc("DELETE /v1/subscribers/{id}", writeGate(h.deleteSubscriber))
-
-	mux.HandleFunc("GET /v1/subscriptions", readGate(h.listSubscriptions))
-	mux.HandleFunc("POST /v1/subscriptions", writeGate(h.createSubscription))
-	mux.HandleFunc("GET /v1/subscriptions/{id}", readGate(h.getSubscription))
-	mux.HandleFunc("PUT /v1/subscriptions/{id}", writeGate(h.updateSubscription))
-	mux.HandleFunc("DELETE /v1/subscriptions/{id}", writeGate(h.deleteSubscription))
-
-	mux.HandleFunc("GET /v1/incidents", readGate(h.listIncidents))
-	mux.HandleFunc("GET /v1/incidents/export", readGate(h.exportIncidents))
-	mux.HandleFunc("GET /v1/incidents/{id}", readGate(h.getIncident))
-	mux.HandleFunc("GET /v1/notifications", readGate(h.listNotifications))
-	mux.HandleFunc("GET /v1/states", readGate(h.listStates))
+	// Gated routes — driven from the route table so tests can
+	// verify parity with the OpenAPI spec without re-listing routes.
+	for _, rt := range gatedRoutes() {
+		fn := h.handlerFor(rt.handlerID)
+		gate := readGate
+		if rt.scope == auth.ScopeAdmin {
+			gate = writeGate
+		}
+		mux.HandleFunc(rt.method+" "+rt.path, gate(fn))
+	}
 
 	// Per-user API-token management. Always admin-scoped. Routes are
 	// only mounted when a token store is configured — otherwise the
 	// endpoints would have nowhere to write to.
 	if s.tokens != nil {
-		mux.HandleFunc("GET /v1/auth/tokens", writeGate(h.listTokens))
-		mux.HandleFunc("POST /v1/auth/tokens", writeGate(h.issueToken))
-		mux.HandleFunc("DELETE /v1/auth/tokens/{id}", writeGate(h.revokeToken))
+		for _, rt := range authRoutes() {
+			mux.HandleFunc(rt.method+" "+rt.path, writeGate(h.handlerFor(rt.handlerID)))
+		}
 	}
 
 	if ui != nil {
 		mux.Handle("/", ui)
 	}
+}
+
+// route is one entry in the gated-route table. handlerID names the
+// matching method on *handlers; the parity test asserts a 1:1 mapping
+// between this table, *handlers methods, and OpenAPI operationIds.
+type route struct {
+	method    string
+	path      string
+	scope     auth.Scope
+	handlerID string
+}
+
+// gatedRoutes returns the routes mounted under read/write scope gates.
+// Kept as a separate function (not a package-level var) so it's clear
+// at the call sites that the slice is freshly allocated and can't be
+// mutated by callers.
+func gatedRoutes() []route {
+	return []route{
+		{"POST", "/v1/events", auth.ScopeAdmin, "postEvent"},
+
+		{"GET", "/v1/rules", auth.ScopeRead, "listRules"},
+		{"POST", "/v1/rules", auth.ScopeAdmin, "createRule"},
+		{"POST", "/v1/rules/validate", auth.ScopeAdmin, "validateRule"},
+		{"GET", "/v1/rules/{id}", auth.ScopeRead, "getRule"},
+		{"PUT", "/v1/rules/{id}", auth.ScopeAdmin, "updateRule"},
+		{"DELETE", "/v1/rules/{id}", auth.ScopeAdmin, "deleteRule"},
+
+		{"GET", "/v1/subscribers", auth.ScopeRead, "listSubscribers"},
+		{"POST", "/v1/subscribers", auth.ScopeAdmin, "createSubscriber"},
+		{"GET", "/v1/subscribers/{id}", auth.ScopeRead, "getSubscriber"},
+		{"PUT", "/v1/subscribers/{id}", auth.ScopeAdmin, "updateSubscriber"},
+		{"DELETE", "/v1/subscribers/{id}", auth.ScopeAdmin, "deleteSubscriber"},
+
+		{"GET", "/v1/subscriptions", auth.ScopeRead, "listSubscriptions"},
+		{"POST", "/v1/subscriptions", auth.ScopeAdmin, "createSubscription"},
+		{"GET", "/v1/subscriptions/{id}", auth.ScopeRead, "getSubscription"},
+		{"PUT", "/v1/subscriptions/{id}", auth.ScopeAdmin, "updateSubscription"},
+		{"DELETE", "/v1/subscriptions/{id}", auth.ScopeAdmin, "deleteSubscription"},
+
+		{"GET", "/v1/incidents", auth.ScopeRead, "listIncidents"},
+		{"GET", "/v1/incidents/export", auth.ScopeRead, "exportIncidents"},
+		{"GET", "/v1/incidents/{id}", auth.ScopeRead, "getIncident"},
+
+		{"GET", "/v1/notifications", auth.ScopeRead, "listNotifications"},
+		{"GET", "/v1/states", auth.ScopeRead, "listStates"},
+	}
+}
+
+// authRoutes is the token-management subset, only mounted when a token
+// store is configured. Always admin-scoped.
+func authRoutes() []route {
+	return []route{
+		{"GET", "/v1/auth/tokens", auth.ScopeAdmin, "listTokens"},
+		{"POST", "/v1/auth/tokens", auth.ScopeAdmin, "issueToken"},
+		{"DELETE", "/v1/auth/tokens/{id}", auth.ScopeAdmin, "revokeToken"},
+	}
+}
+
+// handlerFor maps a handlerID to the concrete method on *handlers.
+// Centralizing the dispatch keeps the route table data-only — when a
+// new endpoint lands, you touch this map + the table + the spec, and
+// the drift test catches anything you missed.
+//
+// The cyclomatic-complexity lint cap is intentionally relaxed here:
+// this is a flat dispatch table, not branching logic. A map literal
+// would lose the type-checked compile-time guarantee that every
+// handler method exists with the right signature.
+//
+//nolint:gocyclo
+func (h *handlers) handlerFor(id string) http.HandlerFunc {
+	switch id {
+	case "postEvent":
+		return h.postEvent
+	case "listRules":
+		return h.listRules
+	case "createRule":
+		return h.createRule
+	case "validateRule":
+		return h.validateRule
+	case "getRule":
+		return h.getRule
+	case "updateRule":
+		return h.updateRule
+	case "deleteRule":
+		return h.deleteRule
+	case "listSubscribers":
+		return h.listSubscribers
+	case "createSubscriber":
+		return h.createSubscriber
+	case "getSubscriber":
+		return h.getSubscriber
+	case "updateSubscriber":
+		return h.updateSubscriber
+	case "deleteSubscriber":
+		return h.deleteSubscriber
+	case "listSubscriptions":
+		return h.listSubscriptions
+	case "createSubscription":
+		return h.createSubscription
+	case "getSubscription":
+		return h.getSubscription
+	case "updateSubscription":
+		return h.updateSubscription
+	case "deleteSubscription":
+		return h.deleteSubscription
+	case "listIncidents":
+		return h.listIncidents
+	case "exportIncidents":
+		return h.exportIncidents
+	case "getIncident":
+		return h.getIncident
+	case "listNotifications":
+		return h.listNotifications
+	case "listStates":
+		return h.listStates
+	case "listTokens":
+		return h.listTokens
+	case "issueToken":
+		return h.issueToken
+	case "revokeToken":
+		return h.revokeToken
+	}
+	// A misspelled handlerID in the route table is a build-time bug,
+	// not a runtime one — the parity test would catch it before any
+	// request lands here. Panicking surfaces the bug if the test is
+	// somehow skipped.
+	panic("api: no handler registered for id " + id)
 }
 
 type handlers struct {
