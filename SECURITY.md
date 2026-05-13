@@ -41,6 +41,22 @@ A failing security check blocks merge to `main`. The full list of gates is docum
 
 `main` is protected: all CI checks above are required, PR review is required, force-push and deletion are blocked, and signed commits are required. The applied configuration lives in [`docs/BRANCH-PROTECTION.md`](./docs/BRANCH-PROTECTION.md) and is reproducible via the `gh` script in that document.
 
+## Handling third-party credentials
+
+A few channel types need provider credentials. **None go in config files**; they are read from the environment at startup.
+
+| Channel | Env vars |
+| --- | --- |
+| Twilio SMS (`sms`) | `SIGNALWATCH_TWILIO_ACCOUNT_SID`, `SIGNALWATCH_TWILIO_AUTH_TOKEN` |
+
+Operational guidance:
+
+- Inject these via your process supervisor (systemd `EnvironmentFile=`, Kubernetes `Secret`, AWS SSM, etc.). Never commit them.
+- Rotate routinely. signalwatch reads each env var once at process startup; restart after rotation.
+- The `sms` channel's `from_number` is non-sensitive (it's a phone number bound to your Twilio account) and lives in YAML; only the API credentials are env-only.
+
+Other channel types (SMTP, Slack/Discord/Teams webhooks, PagerDuty routing keys) accept their credentials in YAML today. That's a deliberate trade-off for v0.3 — those credentials are scoped to a single posting target, not full-account API access. Moving them to env-var indirection is on the v0.4 roadmap.
+
 ## Disclosure timeline
 
 We aim for coordinated disclosure within 90 days of a confirmed report, sooner if a fix is available. Reporters who want public credit are listed in the advisory; otherwise reports are anonymous.
