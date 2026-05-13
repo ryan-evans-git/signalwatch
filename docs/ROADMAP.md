@@ -7,9 +7,9 @@ This roadmap is the source of truth for what gets built when. The active sprint 
 | Version | Theme | Status |
 |---|---|---|
 | **v0.1** | MVP — engine, dispatcher, SQLite, three channels, three inputs, HTTP API, embedded UI, CLI | code-complete reference state; never tagged |
-| **v0.2** | Production-ready single-node — CICD gates green, ≥90% coverage, Postgres + MySQL stores, Kafka/SQS/RabbitMQ stream inputs, token auth | **scope landed on `main` (2026-05-13)**; tag deferred |
-| **v0.3** | Ecosystem breadth — expression-language conditions, DuckDB datasource, PagerDuty/Teams/Discord/SMS channels, per-rule incident drill-down UI | **scope landed on `main` (2026-05-13)**; tag deferred |
-| **v0.4** | Production hardening + cloud scale — MSK + Pub/Sub stream inputs, alert-history retention + archival, OpenTelemetry tracing, per-user API tokens | active in PI 3 |
+| **v0.2** | Production-ready single-node — CICD gates green, ≥90% coverage, Postgres + MySQL stores, Kafka/SQS/RabbitMQ stream inputs, token auth | scope landed; rolled into v0.4 tag (no standalone v0.2 release) |
+| **v0.3** | Ecosystem breadth — expression-language conditions, DuckDB datasource, PagerDuty/Teams/Discord/SMS channels, per-rule incident drill-down UI | scope landed; rolled into v0.4 tag (no standalone v0.3 release) |
+| **v0.4** | Production hardening + cloud scale — MSK + Pub/Sub stream inputs, alert-history retention + archival, OpenTelemetry tracing, per-user API tokens | **shipped 2026-05-13 (first published release)** |
 | **v0.5** | Multi-node + remaining cloud streams — leader election, sharded evaluators, HA store; Service Bus + EventBridge inputs | |
 | **v1.0** | Stable surfaces — engine API, HTTP API, on-disk schema all 1.0; full RBAC + SSO + audit log | |
 
@@ -47,15 +47,15 @@ Already in `main`:
 - Expression-language conditions (escape hatch via `expr-lang/expr`).
 - Per-rule incident drill-down view in the UI; alert history exports.
 
-## v0.4 — production hardening + cloud scale
+## v0.4 — production hardening + cloud scale — **shipped 2026-05-13**
 
-Active in [PI 3](./PI-PLAN.md). Cloud-stream-input coverage narrowed to the two highest-impact platforms; the other two move to v0.5.
+Delivered by [PI 3](./PI-PLAN.md). First published release.
 
 - MSK (AWS-managed Kafka, IAM-SASL auth on the existing `internal/input/stream/kafka` package).
 - Google Pub/Sub (new `internal/input/stream/pubsub` package).
-- Alert-history retention + archival (configurable window, optional archive sinks).
-- OpenTelemetry tracing on the rule-eval / dispatch / channel-send / store-query hot paths.
-- Per-user API tokens (named scopes, optional expiry) replacing the v0.2/v0.3 shared-token model.
+- Alert-history retention + archival (configurable window, optional `json` / `webhook` archive sinks).
+- OpenTelemetry tracing on the rule-eval / dispatch / channel-send hot paths; HTTP server wrapped with `otelhttp`.
+- Per-user API tokens (DB-stored, `admin`/`read` scopes, optional expiry). Legacy shared token still accepted for back-compat.
 
 ## v0.5 — multi-node + remaining cloud streams
 

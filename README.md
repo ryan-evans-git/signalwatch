@@ -1,6 +1,6 @@
 # signalwatch
 
-> ⚠️ **Pre-alpha.** Active development on a feature branch. No released versions yet — `main` is the only supported branch and breaking changes are expected before `v0.2.0`. See [`docs/PI-PLAN.md`](./docs/PI-PLAN.md) for what's in flight.
+> ✅ **`v0.4.0` shipped 2026-05-13.** First published release. Closes Program Increment 3 ("Production hardening + cloud scale"). See [`CHANGELOG.md`](./CHANGELOG.md) for everything that landed; [`docs/PI-PLAN.md`](./docs/PI-PLAN.md) for the per-sprint breakdown.
 
 An open-source alert and notifications framework. Define rules over pushed events, scheduled SQL queries, scraped metrics, or message-queue streams. Notify subscribers on Slack, email, or any webhook. Ships as a single-binary service with a bundled UI, or as a Go library embeddable into your own application.
 
@@ -26,14 +26,19 @@ One tool, one rule model, one subscriber model. Pluggable everywhere.
 
 | Layer | State |
 |---|---|
-| Engine, dispatcher (dwell/dedup/repeat), three channels (SMTP/Slack/webhook), three inputs (event/SQL/scrape), HTTP API, embedded UI, CLI | landed |
-| SQLite + Postgres + MySQL stores | landed (PI 1, sprints 4–5) |
-| Kafka / SQS / RabbitMQ stream inputs | landed (PI 1, sprint 6) |
-| Shared-token API auth + UI login gate | landed (PI 1, sprint 6) |
+| Engine, dispatcher (dwell/dedup/repeat), HTTP API, embedded UI, CLI | landed (PI 1) |
+| Channels: SMTP, Slack, generic webhook, PagerDuty, MS Teams, Discord, Twilio SMS | landed (PI 1–2) |
+| Inputs: event push, scheduled SQL, JSON scrape, Kafka, SQS, RabbitMQ, **AWS MSK (IAM-SASL)**, **Google Pub/Sub** | landed (PI 1–3) |
+| Stores: SQLite (default), Postgres, MySQL; opt-in DuckDB datasource | landed (PI 1–2) |
+| Rule conditions: threshold, window_aggregate, pattern_match, sql_returns_rows, **expression (expr-lang)** | landed (PI 1–2) |
+| Per-rule incident drill-down UI + alert-history CSV/JSON export | landed (PI 2) |
+| **Alert-history retention + archival (`json` / `webhook` sinks)** | landed (PI 3) |
+| **OpenTelemetry tracing across engine / dispatcher / channels** | landed (PI 3) |
+| **Per-user API tokens** (DB-stored, scoped `admin`/`read`, expiring); legacy shared token still accepted | landed (PI 3) |
 | Cross-driver store conformance suite (`internal/store/storetest`) | landed |
-| 96.3% test coverage; 15-gate CICD on every PR | landed |
-| Public repo, branch-protected `main` | landed |
-| `v0.2.0` release tag | pending (PI 1 close) |
+| ≥90% repo coverage gate, 17-gate CICD on every PR | landed |
+| Public repo, branch-protected `main`, signed-commits-only | landed |
+| `v0.4.0` release tag | **shipped 2026-05-13** |
 
 Full roadmap: [`docs/ROADMAP.md`](./docs/ROADMAP.md). Active sprint: [`docs/PI-PLAN.md`](./docs/PI-PLAN.md). What landed since v0.1: [`CHANGELOG.md`](./CHANGELOG.md).
 
@@ -50,14 +55,29 @@ Open `http://localhost:8080/` for the UI. Push events to `http://localhost:8080/
 
 ### Locking down the API
 
-By default `signalwatch` listens on the loopback interface and serves the API unauthenticated — fine for single-tenant local dev. For shared deployments, set a bearer token via `SIGNALWATCH_API_TOKEN`:
+By default `signalwatch` listens on the loopback interface and serves the API unauthenticated — fine for single-tenant local dev.
+
+For shared deployments, signalwatch supports two complementary auth mechanisms:
+
+1. **Per-user tokens** (recommended, v0.4+). Tokens are DB-stored with `admin`/`read` scopes and optional expiry. Issue / list / revoke via `/v1/auth/tokens` (admin-scoped). The raw secret is returned exactly once on issue; only `sha256(secret)` is persisted. See [`SECURITY.md`](./SECURITY.md).
+2. **Shared token** (legacy, v0.1-style). Set `SIGNALWATCH_API_TOKEN` to require a single shared bearer on every `/v1/*` route. Treated as admin scope.
 
 ```bash
-export SIGNALWATCH_API_TOKEN=$(openssl rand -base64 32)
+# Either or both:
+export SIGNALWATCH_API_TOKEN=$(openssl rand -base64 32)   # optional legacy path
 ./bin/signalwatch --config examples/config.yaml
+# Then issue a per-user token (returns the secret once):
+curl -sX POST -H "Authorization: Bearer $SIGNALWATCH_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ci-deploybot","scopes":["admin"]}' \
+  http://localhost:8080/v1/auth/tokens
 ```
 
-Every `/v1/*` request must now carry `Authorization: Bearer <token>`. `/healthz` and `/v1/auth-status` stay open. The bundled UI prompts for the token on first load and stores it in `localStorage`. Per-user RBAC, named tokens, expiry, and SSO are post-PI-1 (see [`docs/ROADMAP.md`](./docs/ROADMAP.md)).
+`/healthz` and `/v1/auth-status` stay open regardless. The bundled UI prompts for a token on first load and stores it in `localStorage`.
+
+### Tracing
+
+signalwatch emits OpenTelemetry traces when `OTEL_TRACES_EXPORTER` is set. Spans cover engine submit, dispatcher tick + deliver, and every channel send. See [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 
 ### Screenshots
 

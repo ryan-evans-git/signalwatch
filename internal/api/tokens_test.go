@@ -32,7 +32,13 @@ type tokensFixture struct {
 
 func newTokensFixture(t *testing.T, sharedToken string, opts ...api.MountOption) *tokensFixture {
 	t.Helper()
-	st, err := sqlite.Open("file::memory:?cache=shared&mode=memory&test_id=" + t.Name())
+	// Use the test name as the SQLite URI database name (not just a
+	// query param) so each test gets a fresh in-memory DB. The
+	// :memory: sentinel is shared across every connection that
+	// references it; a unique name with `mode=memory&cache=shared`
+	// gives per-test isolation while still allowing the in-process
+	// connection pool to share state within one test.
+	st, err := sqlite.Open("file:" + t.Name() + "?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatalf("Open store: %v", err)
 	}
@@ -468,7 +474,7 @@ func (f failingListRepo) Delete(ctx context.Context, id string) error {
 }
 
 func TestTokens_List_500OnRepoError(t *testing.T) {
-	st, err := sqlite.Open("file::memory:?cache=shared&mode=memory&test_id=" + t.Name())
+	st, err := sqlite.Open("file:" + t.Name() + "?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -532,7 +538,7 @@ func (f failingRevokeRepo) Delete(ctx context.Context, id string) error {
 }
 
 func TestTokens_Revoke_500OnRepoError(t *testing.T) {
-	st, err := sqlite.Open("file::memory:?cache=shared&mode=memory&test_id=" + t.Name())
+	st, err := sqlite.Open("file:" + t.Name() + "?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

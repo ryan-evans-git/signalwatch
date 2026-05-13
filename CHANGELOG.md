@@ -1,8 +1,12 @@
 # Changelog
 
-All notable changes to signalwatch are recorded here. Format adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Project versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once `v0.2.0` ships; before that, `main` is the only supported reference.
+All notable changes to signalwatch are recorded here. Format adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Project versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The first published release is `v0.4.0` (2026-05-13); v0.2 / v0.3 scope landed on `main` but rolled into the v0.4 tag.
 
 ## [Unreleased]
+
+## [0.4.0] — 2026-05-13
+
+First published release. Closes out Program Increment 3 ("Production hardening + cloud scale"). Repo is signed-commit-only on `main`, 17 required status checks, ≥90% coverage gate.
 
 ### Added (PI 3)
 
@@ -11,6 +15,10 @@ All notable changes to signalwatch are recorded here. Format adheres to [Keep a 
 - **Alert-history retention + archival.** New `internal/retention` package periodically deletes resolved incidents (and cascades their notifications + incident_sub_states) older than a configured window. Optional archive sinks (`json` rotating-file or `webhook` POST) capture each deleted incident before the row goes away. New conformance methods `IncidentRepo.ListResolvedBefore` + `IncidentRepo.DeleteResolvedBefore` implemented on sqlite/postgres/mysql. Config under `retention:` in `cmd/signalwatch` YAML; defaults to off. `docs/RETENTION.md` walks the lifecycle, sink formats, and tuning knobs.
 - **Google Cloud Pub/Sub stream input.** New `internal/input/stream/pubsub` package consuming from one or more Pub/Sub subscriptions via `cloud.google.com/go/pubsub` v1.50.2. Credentials follow Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS`, workload identity, or GCE/GKE/Cloud Run metadata) — no service-account JSON in YAML. JSON-object payloads are Ack'd; non-JSON / non-object / empty payloads are Nack'd so Pub/Sub redelivers (or routes to a DLQ topic if one is bound). New `test (pubsub integration)` CI job uses the `gcloud-cli:emulators` image via testcontainers-go; branch protection now requires 17 checks.
 - **AWS MSK (managed Kafka) auth.** The existing `internal/input/stream/kafka` package gains a `SASL` config option implementing AWS' `AWS_MSK_IAM` mechanism via `aws-msk-iam-sasl-signer-go`. When configured, the input dials brokers with TLS + an IAM-signed presigned-URL token; AWS credentials follow the SDK default chain (env / IRSA / shared config). Plain (no-SASL) dialing remains the default for on-prem clusters and the testcontainers integration job.
+
+### Changed (PI 3)
+
+- **Dependency bumps.** `modernc.org/sqlite` v1.36.1 → v1.50.1, `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` v0.62.0 → v0.68.0, `google.golang.org/api` v0.274.0 → v0.279.0, `google.golang.org/grpc` v1.80.0 → v1.81.0 (Dependabot group). All minor/patch — no API churn for signalwatch consumers.
 
 ### Added (PI 2)
 
