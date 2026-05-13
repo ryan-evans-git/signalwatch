@@ -6,6 +6,7 @@ All notable changes to signalwatch are recorded here. Format adheres to [Keep a 
 
 ### Added (PI 3)
 
+- **Google Cloud Pub/Sub stream input.** New `internal/input/stream/pubsub` package consuming from one or more Pub/Sub subscriptions via `cloud.google.com/go/pubsub` v1.50.2. Credentials follow Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS`, workload identity, or GCE/GKE/Cloud Run metadata) — no service-account JSON in YAML. JSON-object payloads are Ack'd; non-JSON / non-object / empty payloads are Nack'd so Pub/Sub redelivers (or routes to a DLQ topic if one is bound). New `test (pubsub integration)` CI job uses the `gcloud-cli:emulators` image via testcontainers-go; branch protection now requires 17 checks.
 - **AWS MSK (managed Kafka) auth.** The existing `internal/input/stream/kafka` package gains a `SASL` config option implementing AWS' `AWS_MSK_IAM` mechanism via `aws-msk-iam-sasl-signer-go`. When configured, the input dials brokers with TLS + an IAM-signed presigned-URL token; AWS credentials follow the SDK default chain (env / IRSA / shared config). Plain (no-SASL) dialing remains the default for on-prem clusters and the testcontainers integration job.
 
 ### Added (PI 2)

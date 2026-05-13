@@ -13,6 +13,7 @@ REQUIRED_CHECKS='[
   "test (kafka integration)",
   "test (sqs integration)",
   "test (rabbitmq integration)",
+  "test (pubsub integration)",
   "test (duckdb integration)",
   "gosec + govulncheck",
   "license policy (block GPL/AGPL/SSPL/BUSL/Elastic/Commons-Clause)",
