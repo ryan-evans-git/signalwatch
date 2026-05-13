@@ -77,6 +77,28 @@ Triggers when a SQL query against a registered datasource returns at least `min_
 
 The `default` datasource is the engine's own state SQLite DB. Register your own datasources programmatically when constructing the engine via `engine.Options.SQLDatasources`.
 
+**DuckDB.** signalwatch ships an opt-in DuckDB driver for analytical workloads. DuckDB is CGO-only, so the default `signalwatch` binary stays pure-Go and doesn't link it — to use DuckDB, rebuild with `-tags=duckdb` and `CGO_ENABLED=1` and register an opened `*sql.DB` against the engine's `SQLDatasources` registry:
+
+```go
+import (
+    "github.com/ryan-evans-git/signalwatch/internal/datasource/duckdb"
+    "github.com/ryan-evans-git/signalwatch/internal/input/sqlquery"
+)
+
+db, err := duckdb.Open("analytics.duckdb")   // "" for in-memory
+if err != nil { return err }
+
+reg := sqlquery.NewRegistry()
+reg.Register("analytics", db)
+
+engine.New(engine.Options{
+    // ...
+    SQLDatasources: reg,
+})
+```
+
+A rule with `{"type":"sql_returns_rows","spec":{"data_source":"analytics", ...}}` then runs against that DuckDB. Callers can probe `duckdb.Enabled` to decide whether to attempt the open — the stub build returns `duckdb.ErrDisabled` from `Open()`.
+
 ### `expression`
 
 The escape hatch for everything the four typed conditions don't cover. Evaluates an [expr-lang](https://github.com/expr-lang/expr) program against either the inbound record (push mode) or the rule's helper environment (scheduled mode). Triggers when the program returns `true`.

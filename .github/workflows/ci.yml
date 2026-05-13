@@ -256,6 +256,25 @@ jobs:
       - name: rabbitmq integration
         run: go test -race -tags=integration -timeout=10m ./internal/input/stream/rabbitmq/...
 
+  test-duckdb:
+    name: test (duckdb integration)
+    runs-on: ubuntu-latest
+    # DuckDB is CGO-only and only linked when the `duckdb` build tag
+    # is set. This job is the only place DuckDB actually compiles —
+    # default builds stay pure-Go single binary.
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: go mod verify
+        run: go mod verify
+      - name: duckdb tests
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -tags=duckdb -timeout=10m ./internal/datasource/duckdb/...
+
   binary-build:
     name: binary build (sanity)
     runs-on: ubuntu-latest

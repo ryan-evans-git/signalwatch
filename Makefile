@@ -6,7 +6,7 @@ NPM ?= npm
 # Local-dev parity with the CI pipeline. The CI workflow is the source of
 # truth — when a target diverges from CI, fix CI and update this Makefile.
 
-.PHONY: build web go test test-race test-pg test-mysql test-kafka test-sqs test-rabbitmq coverage coverage-html lint vet \
+.PHONY: build web go test test-race test-pg test-mysql test-kafka test-sqs test-rabbitmq test-duckdb coverage coverage-html lint vet \
         gosec govulncheck licenses verify clean tools screenshots
 
 build: web go
@@ -51,6 +51,12 @@ test-sqs:
 # it on every PR via test-rabbitmq.
 test-rabbitmq:
 	$(GO) test -race -tags=integration ./internal/input/stream/rabbitmq/...
+
+# Run the DuckDB datasource tests. DuckDB is CGO-only; this target
+# enables CGO + the `duckdb` build tag to link the real driver.
+# Default `make test` skips this — DuckDB stays opt-in.
+test-duckdb:
+	CGO_ENABLED=1 $(GO) test -race -tags=duckdb ./internal/datasource/duckdb/...
 
 # Coverage profile + summary. Matches the CI invocation exactly.
 coverage:
