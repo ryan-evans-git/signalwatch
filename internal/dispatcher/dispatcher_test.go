@@ -347,3 +347,93 @@ func TestNotifyOnResolve_Disabled(t *testing.T) {
 		t.Fatalf("expected 1 send (firing only), got %d", len(rec.got))
 	}
 }
+
+// TestOneShot_FiresOnceAcrossIncidents pins the new OneShot behavior:
+// the dispatcher delivers exactly one notification for a OneShot
+// subscription across its lifetime, regardless of how many times the
+// rule fires/resolves. Contrast with TestDedup_NewIncidentRefires,
+// where a non-OneShot subscription would receive a fresh notification
+// on each new incident.
+func TestOneShot_FiresOnceAcrossIncidents(t *testing.T) {
+	clock := &fixedClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	rec := &recordingChannel{name: "test"}
+	d, st := newDispatcher(t, map[string]channel.Channel{"test": rec}, clock)
+
+	r := seedRule(t, st)
+	sub := seedSubscriber(t, st, "test", "ops@example.com")
+	if err := st.Subscriptions().Create(context.Background(), &subscriber.Subscription{
+		ID: "subscr-1", SubscriberID: sub.ID, RuleID: r.ID,
+		// NotifyOnResolve and a RepeatInterval are set on purpose:
+		// OneShot must suppress BOTH the resolve ping AND any renotify.
+		NotifyOnResolve: true,
+		RepeatInterval:  100 * time.Millisecond,
+		OneShot:         true,
+	}); err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Incident 1: fire, stay firing past repeat_interval, resolve.
+	if err := d.Tick(ctx, r, true, "first"); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(500 * time.Millisecond) // would normally renotify several times
+	if err := d.Tick(ctx, r, true, "still"); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Second)
+	if err := d.Tick(ctx, r, false, "ok"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Incident 2: re-fire, immediately resolve.
+	clock.advance(time.Second)
+	if err := d.Tick(ctx, r, true, "second"); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Second)
+	if err := d.Tick(ctx, r, false, "ok"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rec.got) != 1 {
+		t.Fatalf("OneShot subscription should have received exactly 1 notification, got %d: %+v",
+			len(rec.got), rec.got)
+	}
+	if rec.got[0].Kind != string(subscriber.KindFiring) {
+		t.Errorf("expected the one delivery to be the firing kind, got %s", rec.got[0].Kind)
+	}
+}
+
+// TestOneShot_DefaultFalseUnchanged is a guardrail: a subscription
+// created without OneShot must continue to behave like every other
+// subscription. Belt-and-suspenders so a future store-layer regression
+// doesn't silently flip the default.
+func TestOneShot_DefaultFalseUnchanged(t *testing.T) {
+	clock := &fixedClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	rec := &recordingChannel{name: "test"}
+	d, st := newDispatcher(t, map[string]channel.Channel{"test": rec}, clock)
+
+	r := seedRule(t, st)
+	sub := seedSubscriber(t, st, "test", "ops@example.com")
+	seedSubscription(t, st, r.ID, sub.ID, 0, 0, true) // OneShot defaults to false
+
+	ctx := context.Background()
+	if err := d.Tick(ctx, r, true, "fire"); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Second)
+	if err := d.Tick(ctx, r, false, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Second)
+	if err := d.Tick(ctx, r, true, "fire-again"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rec.got) != 3 {
+		t.Fatalf("non-OneShot subscription: want 3 notifications (fire, resolve, fire), got %d",
+			len(rec.got))
+	}
+}

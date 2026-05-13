@@ -320,18 +320,18 @@ func (r *subscriptionRepo) Create(ctx context.Context, s *subscriber.Subscriptio
 	}
 	s.UpdatedAt = now
 	_, err := r.db.ExecContext(ctx, `INSERT INTO subscriptions
-        (id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, channel_filter, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		s.ID, s.SubscriberID, nullable(s.RuleID), mustJSON(s.LabelSelector), int64(s.Dwell), int64(s.RepeatInterval), boolInt(s.NotifyOnResolve), mustJSON(s.ChannelFilter), s.CreatedAt.UnixMilli(), s.UpdatedAt.UnixMilli())
+        (id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, one_shot, channel_filter, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		s.ID, s.SubscriberID, nullable(s.RuleID), mustJSON(s.LabelSelector), int64(s.Dwell), int64(s.RepeatInterval), boolInt(s.NotifyOnResolve), boolInt(s.OneShot), mustJSON(s.ChannelFilter), s.CreatedAt.UnixMilli(), s.UpdatedAt.UnixMilli())
 	return err
 }
 
 func (r *subscriptionRepo) Update(ctx context.Context, s *subscriber.Subscription) error {
 	s.UpdatedAt = time.Now()
 	_, err := r.db.ExecContext(ctx, `UPDATE subscriptions
-        SET subscriber_id = $1, rule_id = $2, label_selector = $3, dwell_ns = $4, repeat_interval_ns = $5, notify_on_resolve = $6, channel_filter = $7, updated_at = $8
-        WHERE id = $9`,
-		s.SubscriberID, nullable(s.RuleID), mustJSON(s.LabelSelector), int64(s.Dwell), int64(s.RepeatInterval), boolInt(s.NotifyOnResolve), mustJSON(s.ChannelFilter), s.UpdatedAt.UnixMilli(), s.ID)
+        SET subscriber_id = $1, rule_id = $2, label_selector = $3, dwell_ns = $4, repeat_interval_ns = $5, notify_on_resolve = $6, one_shot = $7, channel_filter = $8, updated_at = $9
+        WHERE id = $10`,
+		s.SubscriberID, nullable(s.RuleID), mustJSON(s.LabelSelector), int64(s.Dwell), int64(s.RepeatInterval), boolInt(s.NotifyOnResolve), boolInt(s.OneShot), mustJSON(s.ChannelFilter), s.UpdatedAt.UnixMilli(), s.ID)
 	return err
 }
 
@@ -341,12 +341,12 @@ func (r *subscriptionRepo) Delete(ctx context.Context, id string) error {
 }
 
 func (r *subscriptionRepo) Get(ctx context.Context, id string) (*subscriber.Subscription, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, channel_filter, created_at, updated_at FROM subscriptions WHERE id = $1`, id)
+	row := r.db.QueryRowContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, one_shot, channel_filter, created_at, updated_at FROM subscriptions WHERE id = $1`, id)
 	return scanSubscription(row)
 }
 
 func (r *subscriptionRepo) List(ctx context.Context) ([]*subscriber.Subscription, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, channel_filter, created_at, updated_at FROM subscriptions ORDER BY id`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, one_shot, channel_filter, created_at, updated_at FROM subscriptions ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +356,7 @@ func (r *subscriptionRepo) List(ctx context.Context) ([]*subscriber.Subscription
 
 func (r *subscriptionRepo) ListForRule(ctx context.Context, ruleID string, labels map[string]string) ([]*subscriber.Subscription, error) {
 	// Step 1: direct rule_id matches.
-	rows, err := r.db.QueryContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, channel_filter, created_at, updated_at FROM subscriptions WHERE rule_id = $1`, ruleID)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, one_shot, channel_filter, created_at, updated_at FROM subscriptions WHERE rule_id = $1`, ruleID)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +369,7 @@ func (r *subscriptionRepo) ListForRule(ctx context.Context, ruleID string, label
 	// Step 2: label-selector matches. Done in-memory; subscriber counts
 	// are expected to be small for v0.2. (Postgres-side filtering would
 	// require JSONB columns which is a v0.3 schema migration.)
-	rows2, err := r.db.QueryContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, channel_filter, created_at, updated_at FROM subscriptions WHERE rule_id IS NULL`)
+	rows2, err := r.db.QueryContext(ctx, `SELECT id, subscriber_id, rule_id, label_selector, dwell_ns, repeat_interval_ns, notify_on_resolve, one_shot, channel_filter, created_at, updated_at FROM subscriptions WHERE rule_id IS NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -403,9 +403,9 @@ func scanSubscription(row rowScanner) (*subscriber.Subscription, error) {
 		id, subID, labelSelector, channelFilter string
 		ruleID                                  sql.NullString
 		dwellNS, repeatNS, createdMS, updatedMS int64
-		notifyOnResolve                         int64
+		notifyOnResolve, oneShot                int64
 	)
-	if err := row.Scan(&id, &subID, &ruleID, &labelSelector, &dwellNS, &repeatNS, &notifyOnResolve, &channelFilter, &createdMS, &updatedMS); err != nil {
+	if err := row.Scan(&id, &subID, &ruleID, &labelSelector, &dwellNS, &repeatNS, &notifyOnResolve, &oneShot, &channelFilter, &createdMS, &updatedMS); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -417,6 +417,7 @@ func scanSubscription(row rowScanner) (*subscriber.Subscription, error) {
 		Dwell:           time.Duration(dwellNS),
 		RepeatInterval:  time.Duration(repeatNS),
 		NotifyOnResolve: notifyOnResolve != 0,
+		OneShot:         oneShot != 0,
 		CreatedAt:       time.UnixMilli(createdMS),
 		UpdatedAt:       time.UnixMilli(updatedMS),
 	}
@@ -615,6 +616,20 @@ func (r *notificationRepo) List(ctx context.Context, limit int) ([]*subscriber.N
 	}
 	defer rows.Close()
 	return scanNotifications(rows)
+}
+
+func (r *notificationRepo) ExistsForSubscription(ctx context.Context, subscriptionID string) (bool, error) {
+	var one int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT 1 FROM notifications WHERE subscription_id = $1 LIMIT 1`, subscriptionID,
+	).Scan(&one)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func scanNotifications(rows *sql.Rows) ([]*subscriber.Notification, error) {
