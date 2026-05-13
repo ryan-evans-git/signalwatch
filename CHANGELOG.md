@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to signalwatch are recorded here. Format adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Project versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once `v0.2.0` ships; before that, `main` is the only supported reference.
+All notable changes to signalwatch are recorded here. Format adheres to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Project versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The first published release is `v0.4.0` (2026-05-13); v0.2 / v0.3 scope landed on `main` but rolled into the v0.4 tag.
 
 ## [Unreleased]
 
