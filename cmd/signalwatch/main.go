@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/ryan-evans-git/signalwatch/internal/input/event"
 	"github.com/ryan-evans-git/signalwatch/internal/input/scrape"
 	"github.com/ryan-evans-git/signalwatch/internal/input/sqlquery"
+	"github.com/ryan-evans-git/signalwatch/internal/retention"
 	"github.com/ryan-evans-git/signalwatch/internal/store/sqlite"
 	"github.com/ryan-evans-git/signalwatch/internal/ui"
 )
@@ -80,6 +83,20 @@ type config struct {
 			APIBase    string `yaml:"api_base,omitempty"`
 		} `yaml:"sms,omitempty"`
 	} `yaml:"channels"`
+	// Retention runs an in-process pruner that deletes resolved
+	// incidents (and cascades their notifications + sub-states)
+	// older than Window. An optional archive sink keeps a copy of
+	// each deleted incident before the row goes away. See
+	// docs/RETENTION.md for tuning guidance.
+	Retention *struct {
+		Window   string `yaml:"window"`             // "90d" / "168h" / "0s" disables
+		Interval string `yaml:"interval,omitempty"` // defaults to 1h
+		Archive  *struct {
+			Type string `yaml:"type"`          // "json" | "webhook"
+			Dir  string `yaml:"dir,omitempty"` // for type=json
+			URL  string `yaml:"url,omitempty"` // for type=webhook
+		} `yaml:"archive,omitempty"`
+	} `yaml:"retention,omitempty"`
 	Inputs struct {
 		Event struct {
 			Name string `yaml:"name"`
@@ -213,6 +230,23 @@ func run() error {
 		return fmt.Errorf("engine start: %w", err)
 	}
 
+	if cfg.Retention != nil {
+		pruner, err := buildPruner(cfg.Retention, st, logger)
+		if err != nil {
+			return fmt.Errorf("retention: %w", err)
+		}
+		if pruner != nil {
+			go func() {
+				if err := pruner.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Warn("retention.start_error", "err", err)
+				}
+			}()
+			logger.Info("retention.enabled",
+				"window", cfg.Retention.Window,
+				"archive", retentionArchiveType(cfg.Retention))
+		}
+	}
+
 	mux := http.NewServeMux()
 	// Shared bearer-token auth. Empty env var leaves /v1/* open, which
 	// matches the existing single-tenant localhost-binding default.
@@ -283,4 +317,110 @@ func withLogging(logger *slog.Logger, h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 		logger.Info("http", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
 	})
+}
+
+// buildPruner constructs a retention.Pruner from the YAML config.
+// Returns (nil, nil) when the configured window is 0/empty so
+// operators can include the section but disable it at runtime.
+func buildPruner(
+	rc *struct {
+		Window   string `yaml:"window"`
+		Interval string `yaml:"interval,omitempty"`
+		Archive  *struct {
+			Type string `yaml:"type"`
+			Dir  string `yaml:"dir,omitempty"`
+			URL  string `yaml:"url,omitempty"`
+		} `yaml:"archive,omitempty"`
+	},
+	st *sqlite.Store,
+	logger *slog.Logger,
+) (*retention.Pruner, error) {
+	window, err := parseFlexDuration(rc.Window)
+	if err != nil {
+		return nil, fmt.Errorf("window: %w", err)
+	}
+	if window <= 0 {
+		return nil, nil
+	}
+	var interval time.Duration
+	if rc.Interval != "" {
+		interval, err = parseFlexDuration(rc.Interval)
+		if err != nil {
+			return nil, fmt.Errorf("interval: %w", err)
+		}
+	}
+	var arc retention.Archiver
+	if rc.Archive != nil {
+		switch rc.Archive.Type {
+		case "json":
+			if rc.Archive.Dir == "" {
+				return nil, errors.New("archive.dir required for type=json")
+			}
+			arc = &retention.JSONFileArchiver{Dir: rc.Archive.Dir}
+		case "webhook":
+			if rc.Archive.URL == "" {
+				return nil, errors.New("archive.url required for type=webhook")
+			}
+			arc = &retention.WebhookArchiver{URL: rc.Archive.URL}
+		case "":
+		default:
+			return nil, fmt.Errorf("archive.type %q not supported (use json, webhook, or omit)", rc.Archive.Type)
+		}
+	}
+	return retention.New(retention.Config{
+		Store:    st,
+		Window:   window,
+		Interval: interval,
+		Archiver: arc,
+		Logger:   logger,
+	})
+}
+
+func retentionArchiveType(rc *struct {
+	Window   string `yaml:"window"`
+	Interval string `yaml:"interval,omitempty"`
+	Archive  *struct {
+		Type string `yaml:"type"`
+		Dir  string `yaml:"dir,omitempty"`
+		URL  string `yaml:"url,omitempty"`
+	} `yaml:"archive,omitempty"`
+}) string {
+	if rc.Archive == nil {
+		return "none"
+	}
+	return rc.Archive.Type
+}
+
+// parseFlexDuration accepts everything time.ParseDuration accepts
+// plus "Xd" (days) and "Xw" (weeks). Mirrored from
+// internal/rule/expression.go so the YAML reader doesn't need a
+// dependency on the rule package.
+func parseFlexDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	if n := len(s); n > 1 {
+		last := s[n-1]
+		if last == 'd' || last == 'w' {
+			head := s[:n-1]
+			x, err := strconv.ParseFloat(head, 64)
+			if err != nil || x < 0 {
+				return 0, fmt.Errorf("invalid duration %q", s)
+			}
+			unit := time.Hour * 24
+			if last == 'w' {
+				unit *= 7
+			}
+			return time.Duration(x * float64(unit)), nil
+		}
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q: %w", s, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("duration %q must be non-negative", s)
+	}
+	return d, nil
 }

@@ -56,6 +56,8 @@ func RunConformance(t *testing.T, factory Factory) {
 		t.Run("OpenResolveGet", func(t *testing.T) { testIncidentsOpenResolve(t, factory) })
 		t.Run("GetMissing", func(t *testing.T) { testIncidentsGetMissing(t, factory) })
 		t.Run("ListAndListForRuleDefaultLimit", func(t *testing.T) { testIncidentsList(t, factory) })
+		t.Run("ListResolvedBefore_FiltersUnresolvedAndNewer", func(t *testing.T) { testIncidentsListResolvedBefore(t, factory) })
+		t.Run("DeleteResolvedBefore_CascadesChildren", func(t *testing.T) { testIncidentsDeleteResolvedBefore(t, factory) })
 	})
 	t.Run("Notifications", func(t *testing.T) {
 		t.Run("RecordAndList", func(t *testing.T) { testNotificationsList(t, factory) })
@@ -516,6 +518,125 @@ func testIncidentsList(t *testing.T, factory Factory) {
 }
 
 func incIDFor(i int) string { return fmt.Sprintf("inc-%d", i) }
+
+// testIncidentsListResolvedBefore seeds a mix of resolved + unresolved
+// incidents and asserts ListResolvedBefore returns only the resolved-
+// before-cutoff subset. Used by the retention pruner.
+func testIncidentsListResolvedBefore(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	seedRuleSub(t, st, "r1")
+	repo := st.Incidents()
+
+	old := time.UnixMilli(1_000_000)
+	mid := time.UnixMilli(2_000_000)
+	new := time.UnixMilli(3_000_000)
+	cutoff := time.UnixMilli(2_500_000)
+
+	// old + mid resolved before cutoff; new resolved after; unresolved stays.
+	for _, p := range []struct {
+		id         string
+		triggered  time.Time
+		resolvedAt int64 // 0 = unresolved
+	}{
+		{"old-resolved", old, old.UnixMilli() + 1000},
+		{"mid-resolved", mid, mid.UnixMilli() + 1000},
+		{"new-resolved", new, new.UnixMilli() + 1000},
+		{"still-firing", time.UnixMilli(1500000), 0},
+	} {
+		if err := repo.Open(ctx, &subscriber.Incident{ID: p.id, RuleID: "r1", TriggeredAt: p.triggered}); err != nil {
+			t.Fatalf("Open %s: %v", p.id, err)
+		}
+		if p.resolvedAt != 0 {
+			if err := repo.Resolve(ctx, p.id, p.resolvedAt); err != nil {
+				t.Fatalf("Resolve %s: %v", p.id, err)
+			}
+		}
+	}
+
+	got, err := repo.ListResolvedBefore(ctx, cutoff.UnixMilli())
+	if err != nil {
+		t.Fatalf("ListResolvedBefore: %v", err)
+	}
+	ids := map[string]bool{}
+	for _, inc := range got {
+		ids[inc.ID] = true
+	}
+	if !ids["old-resolved"] || !ids["mid-resolved"] {
+		t.Errorf("want old-resolved + mid-resolved in result, got %v", ids)
+	}
+	if ids["new-resolved"] {
+		t.Errorf("new-resolved (after cutoff) should not be in result, got %v", ids)
+	}
+	if ids["still-firing"] {
+		t.Errorf("unresolved incident should not be in result, got %v", ids)
+	}
+}
+
+// testIncidentsDeleteResolvedBefore exercises the cascade: incidents
+// + their notifications + their incident_sub_states should all be
+// gone for resolved-before-cutoff incidents, while unresolved /
+// newer-than-cutoff data remains untouched.
+func testIncidentsDeleteResolvedBefore(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	seedRuleSub(t, st, "r1")
+	// Need a subscription so the FK from incident_sub_states is satisfied.
+	if err := st.Subscriptions().Create(ctx, &subscriber.Subscription{
+		ID: "subscr-1", SubscriberID: "sub-r1", RuleID: "r1",
+	}); err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+
+	old := int64(1_000_000)
+	cutoff := int64(2_500_000)
+
+	// Old resolved incident with one notification + one sub-state — all
+	// should be deleted.
+	_ = st.Incidents().Open(ctx, &subscriber.Incident{ID: "old", RuleID: "r1", TriggeredAt: time.UnixMilli(old)})
+	_ = st.Incidents().Resolve(ctx, "old", old+1000)
+	_ = st.Notifications().Record(ctx, &subscriber.Notification{
+		ID: "n-old", IncidentID: "old", SubscriptionID: "subscr-1", SubscriberID: "sub-r1",
+		Channel: "ch", Address: "a@x", Kind: subscriber.KindFiring, SentAt: time.UnixMilli(old), Status: "ok",
+	})
+	_ = st.IncidentSubStates().Upsert(ctx, &subscriber.IncidentSubState{
+		IncidentID: "old", SubscriptionID: "subscr-1", NotifyCount: 1,
+	})
+
+	// Unresolved incident — must NOT be deleted.
+	_ = st.Incidents().Open(ctx, &subscriber.Incident{ID: "firing", RuleID: "r1", TriggeredAt: time.UnixMilli(old)})
+
+	// Newer resolved incident (after cutoff) — must NOT be deleted.
+	_ = st.Incidents().Open(ctx, &subscriber.Incident{ID: "new", RuleID: "r1", TriggeredAt: time.UnixMilli(3_000_000)})
+	_ = st.Incidents().Resolve(ctx, "new", 3_001_000)
+
+	n, err := st.Incidents().DeleteResolvedBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("DeleteResolvedBefore: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("rows deleted: want 1, got %d", n)
+	}
+
+	// old gone.
+	if got, _ := st.Incidents().Get(ctx, "old"); got != nil {
+		t.Errorf("old incident should be deleted, got %+v", got)
+	}
+	if notes, _ := st.Notifications().ListForIncident(ctx, "old"); len(notes) != 0 {
+		t.Errorf("old incident's notifications should be cascaded, got %d", len(notes))
+	}
+	if subs, _ := st.IncidentSubStates().ListForIncident(ctx, "old"); len(subs) != 0 {
+		t.Errorf("old incident's sub-states should be cascaded, got %d", len(subs))
+	}
+
+	// firing + new remain.
+	if got, _ := st.Incidents().Get(ctx, "firing"); got == nil {
+		t.Errorf("firing incident should remain")
+	}
+	if got, _ := st.Incidents().Get(ctx, "new"); got == nil {
+		t.Errorf("new (post-cutoff) incident should remain")
+	}
+}
 
 // ---- Notifications ----
 

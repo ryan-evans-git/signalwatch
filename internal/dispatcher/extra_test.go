@@ -331,6 +331,12 @@ func (r *failIncidentRepo) List(ctx context.Context, limit int) ([]*subscriber.I
 func (r *failIncidentRepo) ListForRule(ctx context.Context, ruleID string, limit int) ([]*subscriber.Incident, error) {
 	return r.inner.ListForRule(ctx, ruleID, limit)
 }
+func (r *failIncidentRepo) ListResolvedBefore(ctx context.Context, t int64) ([]*subscriber.Incident, error) {
+	return r.inner.ListResolvedBefore(ctx, t)
+}
+func (r *failIncidentRepo) DeleteResolvedBefore(ctx context.Context, t int64) (int, error) {
+	return r.inner.DeleteResolvedBefore(ctx, t)
+}
 
 type failSubscriptionRepo struct {
 	inner           store.SubscriptionRepo

@@ -527,6 +527,63 @@ func (r *incidentRepo) ListForRule(ctx context.Context, ruleID string, limit int
 	return scanIncidents(rows)
 }
 
+func (r *incidentRepo) ListResolvedBefore(ctx context.Context, before int64) ([]*subscriber.Incident, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, rule_id, triggered_at, resolved_at, last_value FROM incidents
+		 WHERE resolved_at IS NOT NULL AND resolved_at < ? ORDER BY resolved_at`, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanIncidents(rows)
+}
+
+func (r *incidentRepo) DeleteResolvedBefore(ctx context.Context, before int64) (int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id FROM incidents WHERE resolved_at IS NOT NULL AND resolved_at < ?`, before)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return 0, tx.Commit()
+	}
+
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM notifications WHERE incident_id = ?`, id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM incident_sub_states WHERE incident_id = ?`, id); err != nil {
+			return 0, err
+		}
+	}
+	res, err := tx.ExecContext(ctx,
+		`DELETE FROM incidents WHERE resolved_at IS NOT NULL AND resolved_at < ?`, before)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 func scanIncident(row rowScanner) (*subscriber.Incident, error) {
 	var (
 		id, ruleID  string
