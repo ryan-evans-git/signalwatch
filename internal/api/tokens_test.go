@@ -76,7 +76,11 @@ func newTokensFixture(t *testing.T, sharedToken string, opts ...api.MountOption)
 }
 
 // seedToken inserts a token directly via the repo (bypassing the API).
-// Returns the raw secret so the caller can use it in headers.
+// Returns the raw secret so the caller can use it in headers. The
+// returned token ID is namespaced by the test name to avoid cross-test
+// PK collisions under sqlite's shared in-memory store (when `cache=shared`
+// the same `:memory:` DB is reused across tests that omit a unique
+// filename, so PKs must be globally unique).
 func seedToken(t *testing.T, repo store.APITokenRepo, name string, scopes []auth.Scope, expiresAt *time.Time) string {
 	t.Helper()
 	raw, hash, err := auth.GenerateToken()
@@ -84,13 +88,21 @@ func seedToken(t *testing.T, repo store.APITokenRepo, name string, scopes []auth
 		t.Fatalf("GenerateToken: %v", err)
 	}
 	tok := &auth.Token{
-		ID: "t-" + name, Name: name, TokenHash: hash,
+		ID: tokenIDFor(t, name), Name: name, TokenHash: hash,
 		Scopes: scopes, ExpiresAt: expiresAt,
 	}
 	if err := repo.Create(context.Background(), tok); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	return raw
+}
+
+// tokenIDFor returns a token PK scoped to the calling test. Use this
+// (not raw "t-"+name) anywhere a test expects to find / delete / revoke
+// a previously-seeded token by ID.
+func tokenIDFor(t *testing.T, name string) string {
+	t.Helper()
+	return "t-" + t.Name() + "-" + name
 }
 
 // ---------- auth-status reflects DB tokens ----------
@@ -136,7 +148,7 @@ func TestAuth_DBToken_AcceptedAndTouches(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	var got *auth.Token
 	for time.Now().Before(deadline) {
-		got, _ = f.st.APITokens().Get(context.Background(), "t-alice")
+		got, _ = f.st.APITokens().Get(context.Background(), tokenIDFor(t, "alice"))
 		if got != nil && got.LastUsedAt != nil {
 			break
 		}
@@ -153,7 +165,7 @@ func TestAuth_DBToken_RevokedRejected(t *testing.T) {
 	f := newTokensFixture(t, "")
 	defer f.cleanup()
 	raw := seedToken(t, f.st.APITokens(), "bob", []auth.Scope{auth.ScopeAdmin}, nil)
-	if err := f.st.APITokens().Revoke(context.Background(), "t-bob"); err != nil {
+	if err := f.st.APITokens().Revoke(context.Background(), tokenIDFor(t, "bob")); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
 	status, _ := doRaw(t, http.MethodGet, f.srv.URL+"/v1/rules", raw, nil)
@@ -328,11 +340,12 @@ func TestTokens_Revoke_HappyAnd404(t *testing.T) {
 	_ = seedToken(t, f.st.APITokens(), "target", []auth.Scope{auth.ScopeRead}, nil)
 
 	// Revoke target.
-	status, body := doRaw(t, http.MethodDelete, f.srv.URL+"/v1/auth/tokens/t-target", raw, nil)
+	targetID := tokenIDFor(t, "target")
+	status, body := doRaw(t, http.MethodDelete, f.srv.URL+"/v1/auth/tokens/"+targetID, raw, nil)
 	if status != http.StatusNoContent {
 		t.Fatalf("revoke: want 204, got %d (%s)", status, body)
 	}
-	got, _ := f.st.APITokens().Get(context.Background(), "t-target")
+	got, _ := f.st.APITokens().Get(context.Background(), targetID)
 	if !got.Revoked {
 		t.Fatal("revoked flag not set")
 	}
