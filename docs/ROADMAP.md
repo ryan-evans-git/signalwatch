@@ -6,9 +6,9 @@ This roadmap is the source of truth for what gets built when. The active sprint 
 
 | Version | Theme | Status |
 |---|---|---|
-| **v0.1** | MVP — engine, dispatcher, SQLite, three channels, three inputs, HTTP API, embedded UI, CLI | code complete, **not** release-ready (no CICD, coverage 33%) |
-| **v0.2** | Production-ready single-node — CICD gates green, ≥90% coverage, Postgres + MySQL stores, Kafka/SQS/RabbitMQ stream inputs, token auth | next |
-| **v0.3** | Ecosystem breadth — DuckDB datasource, PagerDuty/Teams/Discord/SMS channels, expression-language conditions | after v0.2 |
+| **v0.1** | MVP — engine, dispatcher, SQLite, three channels, three inputs, HTTP API, embedded UI, CLI | code-complete reference state; never tagged |
+| **v0.2** | Production-ready single-node — CICD gates green, ≥90% coverage, Postgres + MySQL stores, Kafka/SQS/RabbitMQ stream inputs, token auth | **scope landed on `main` (2026-05-13)**; tag pending PI 2 sprint 7 |
+| **v0.3** | Ecosystem breadth — expression-language conditions, DuckDB datasource, PagerDuty/Teams/Discord/SMS channels, per-rule incident drill-down UI | active in PI 2 |
 | **v0.4** | Cloud-managed adapters — MSK, Pub/Sub, Service Bus, EventBridge | |
 | **v0.5** | Multi-node — leader election, sharded evaluators, HA store | |
 | **v1.0** | Stable surfaces — engine API, HTTP API, on-disk schema all 1.0; full RBAC + SSO + audit log | |
