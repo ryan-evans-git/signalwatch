@@ -68,6 +68,10 @@ A walkthrough of the bundled UI lives in [`docs/screenshots/`](./docs/screenshot
 | ![Rules](./docs/screenshots/rules.png) | ![Live State](./docs/screenshots/states.png) |
 | ![Subscribers](./docs/screenshots/subscribers.png) | ![Incidents](./docs/screenshots/incidents.png) |
 
+Per-rule drill-down at `#/rules/:id` (linked from each row's *view* action) shows the rule's incidents with their per-notification timeline, plus an *Export incidents CSV* shortcut:
+
+![Rule detail](./docs/screenshots/rule-detail.png)
+
 A minimal `config.yaml`:
 
 ```yaml

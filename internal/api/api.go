@@ -5,11 +5,13 @@
 package api
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,6 +64,7 @@ func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler, opts ...Moun
 	mux.HandleFunc("DELETE /v1/subscriptions/{id}", gate(h.deleteSubscription))
 
 	mux.HandleFunc("GET /v1/incidents", gate(h.listIncidents))
+	mux.HandleFunc("GET /v1/incidents/export", gate(h.exportIncidents))
 	mux.HandleFunc("GET /v1/incidents/{id}", gate(h.getIncident))
 	mux.HandleFunc("GET /v1/notifications", gate(h.listNotifications))
 	mux.HandleFunc("GET /v1/states", gate(h.listStates))
@@ -488,12 +491,120 @@ func parseLimit(r *http.Request) int {
 }
 
 func (h *handlers) listIncidents(w http.ResponseWriter, r *http.Request) {
+	// Optional ?rule_id= filter narrows the list to one rule's
+	// timeline — used by the per-rule drill-down UI route.
+	if ruleID := strings.TrimSpace(r.URL.Query().Get("rule_id")); ruleID != "" {
+		rows, err := h.eng.Incidents().ListForRule(r.Context(), ruleID, parseLimit(r))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, rows)
+		return
+	}
 	rows, err := h.eng.Incidents().List(r.Context(), parseLimit(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+// exportIncidents emits all incidents matching the optional ?rule_id=
+// + ?since= filters in either JSON or CSV form. Used by the
+// alert-history export workflow.
+//
+// `since` accepts RFC3339 (preferred) or a Go duration (e.g. "168h")
+// which subtracts from now. Omitting `since` exports everything in
+// the store.
+func (h *handlers) exportIncidents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	format := strings.ToLower(strings.TrimSpace(q.Get("format")))
+	if format == "" {
+		format = "json"
+	}
+	if format != "json" && format != "csv" {
+		writeError(w, http.StatusBadRequest, errors.New("format must be json or csv"))
+		return
+	}
+
+	since, err := parseSince(q.Get("since"), time.Now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	// Pull a generous slice — exports aren't bounded by parseLimit's
+	// default page size. Use 0 to mean "all that the store will
+	// return"; the per-driver implementations cap themselves.
+	var (
+		rows     []*subscriber.Incident
+		fetchErr error
+	)
+	ruleID := strings.TrimSpace(q.Get("rule_id"))
+	if ruleID != "" {
+		rows, fetchErr = h.eng.Incidents().ListForRule(r.Context(), ruleID, 0)
+	} else {
+		rows, fetchErr = h.eng.Incidents().List(r.Context(), 0)
+	}
+	if fetchErr != nil {
+		writeError(w, http.StatusInternalServerError, fetchErr)
+		return
+	}
+
+	if !since.IsZero() {
+		filtered := rows[:0]
+		for _, inc := range rows {
+			if !inc.TriggeredAt.Before(since) {
+				filtered = append(filtered, inc)
+			}
+		}
+		rows = filtered
+	}
+
+	switch format {
+	case "json":
+		writeJSON(w, http.StatusOK, rows)
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="incidents.csv"`)
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"id", "rule_id", "triggered_at", "resolved_at", "last_value"})
+		for _, inc := range rows {
+			resolved := ""
+			if !inc.ResolvedAt.IsZero() {
+				resolved = inc.ResolvedAt.UTC().Format(time.RFC3339)
+			}
+			_ = cw.Write([]string{
+				inc.ID,
+				inc.RuleID,
+				inc.TriggeredAt.UTC().Format(time.RFC3339),
+				resolved,
+				inc.LastValue,
+			})
+		}
+		cw.Flush()
+	}
+}
+
+// parseSince accepts either an RFC3339 timestamp or a Go duration
+// string (e.g. "168h"). A duration is subtracted from `now`. Empty
+// returns a zero time which the caller treats as "no lower bound".
+func parseSince(raw string, now time.Time) (time.Time, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		if d < 0 {
+			return time.Time{}, errors.New("since: duration must be non-negative")
+		}
+		return now.Add(-d), nil
+	}
+	return time.Time{}, errors.New("since: expected RFC3339 or Go duration (e.g. 168h)")
 }
 
 func (h *handlers) getIncident(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type LiveState, type Rule, type Subscriber, type Subscription, type Incident } from "./api";
+import { api, type LiveState, type Rule, type Subscriber, type Subscription, type Incident, type Notification as Note } from "./api";
 import { AUTH_FAILED_EVENT, fetchAuthStatus, getToken } from "./auth";
 import Login from "./Login";
 
@@ -65,8 +65,29 @@ export default function App() {
   return <AppShell />;
 }
 
+// useHash reflects window.location.hash and updates on every change.
+// Hash routing keeps the SPA dependency-free; the only hash route we
+// recognize is "#/rules/:id" for the per-rule drill-down.
+function useHash() {
+  const [hash, setHash] = useState<string>(window.location.hash);
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+  return hash;
+}
+
+function parseRuleDetailRoute(hash: string): string | null {
+  // "#/rules/:id" → id
+  const m = hash.match(/^#\/rules\/([^/?#]+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 function AppShell() {
   const [tab, setTab] = useState<TabId>("rules");
+  const hash = useHash();
+  const ruleDetailID = parseRuleDetailRoute(hash);
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
@@ -78,10 +99,15 @@ function AppShell() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                // Leaving the detail route clears the hash so the tab
+                // strip is unambiguous.
+                if (ruleDetailID) window.location.hash = "";
+                setTab(t.id);
+              }}
               className={
                 "px-3 py-2 text-sm border-b-2 -mb-px transition " +
-                (tab === t.id
+                (tab === t.id && !ruleDetailID
                   ? "border-slate-900 text-slate-900 font-medium"
                   : "border-transparent text-slate-500 hover:text-slate-700")
               }
@@ -92,12 +118,18 @@ function AppShell() {
         </nav>
       </header>
       <main className="mx-auto max-w-6xl px-6 py-8">
-        {tab === "rules" && <RulesPanel />}
-        {tab === "subscribers" && <SubscribersPanel />}
-        {tab === "subscriptions" && <SubscriptionsPanel />}
-        {tab === "incidents" && <IncidentsPanel />}
-        {tab === "states" && <StatesPanel />}
-        {tab === "emit" && <EmitPanel />}
+        {ruleDetailID ? (
+          <RuleDetailPanel id={ruleDetailID} />
+        ) : (
+          <>
+            {tab === "rules" && <RulesPanel />}
+            {tab === "subscribers" && <SubscribersPanel />}
+            {tab === "subscriptions" && <SubscriptionsPanel />}
+            {tab === "incidents" && <IncidentsPanel />}
+            {tab === "states" && <StatesPanel />}
+            {tab === "emit" && <EmitPanel />}
+          </>
+        )}
       </main>
     </div>
   );
@@ -176,7 +208,13 @@ function RulesPanel() {
                 <td className="py-2 pr-4">{r.input_ref}</td>
                 <td className="py-2 pr-4 text-xs text-slate-500 font-mono">{summarizeCondition(r)}</td>
                 <td className="py-2 pr-4">{r.enabled ? <Pill tone="ok">on</Pill> : <Pill tone="neutral">off</Pill>}</td>
-                <td className="py-2 pr-4 text-right">
+                <td className="py-2 pr-4 text-right space-x-3">
+                  <a
+                    href={`#/rules/${encodeURIComponent(r.id)}`}
+                    className="text-xs text-slate-600 hover:underline"
+                  >
+                    view
+                  </a>
                   <button
                     onClick={async () => { await api.rules.remove(r.id); reload(); }}
                     className="text-xs text-rose-600 hover:underline"
@@ -590,6 +628,129 @@ function IncidentsPanel() {
       </div>
     </Card>
   );
+}
+
+// ---------- Rule detail (drill-down) ----------
+
+function RuleDetailPanel({ id }: { id: string }) {
+  const [rule, setRule] = useState<Rule | null>(null);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [notesByIncident, setNotesByIncident] = useState<Record<string, Note[]>>({});
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [r, incs] = await Promise.all([
+          api.rules.get(id),
+          api.incidents.listForRule(id),
+        ]);
+        if (cancelled) return;
+        setRule(r);
+        setIncidents(incs);
+        // Fetch notifications for each incident in parallel.
+        const entries = await Promise.all(
+          incs.map(async (inc) => {
+            try {
+              const detail = await api.incidents.get(inc.id);
+              return [inc.id, detail.notifications ?? []] as const;
+            } catch {
+              return [inc.id, [] as Note[]] as const;
+            }
+          }),
+        );
+        if (cancelled) return;
+        const map: Record<string, Note[]> = {};
+        for (const [k, v] of entries) map[k] = v;
+        setNotesByIncident(map);
+      } catch (e) {
+        if (!cancelled) setErr(String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  function exportCSV() {
+    const params = new URLSearchParams({ rule_id: id, format: "csv" });
+    window.open(`/v1/incidents/export?${params}`, "_blank");
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-baseline gap-3">
+        <a href="#" className="text-sm text-slate-500 hover:underline">← Rules</a>
+        <h2 className="text-lg font-semibold">{rule?.name ?? id}</h2>
+        {rule?.severity && <Pill tone={rule.severity === "critical" ? "critical" : rule.severity === "warning" ? "warning" : "info"}>{rule.severity}</Pill>}
+        <span className="flex-1" />
+        <button
+          onClick={exportCSV}
+          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs hover:bg-slate-100"
+        >
+          Export incidents CSV
+        </button>
+      </div>
+      <ErrorBanner err={err} />
+      {rule && (
+        <Card title="Rule">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt className="text-slate-500">Input</dt><dd className="font-mono text-xs">{rule.input_ref}</dd>
+            <dt className="text-slate-500">Condition</dt><dd className="font-mono text-xs">{summarizeCondition(rule)}</dd>
+            <dt className="text-slate-500">Enabled</dt><dd>{rule.enabled ? "yes" : "no"}</dd>
+            <dt className="text-slate-500">Schedule</dt><dd>{rule.schedule_seconds ? `${rule.schedule_seconds}s` : "push"}</dd>
+          </dl>
+        </Card>
+      )}
+      <Card title={`Incidents (${incidents.length})`}>
+        {incidents.length === 0 ? (
+          <p className="text-sm text-slate-400">No incidents recorded for this rule yet.</p>
+        ) : (
+          <ul className="space-y-3">
+            {incidents.map((inc) => {
+              const notes = notesByIncident[inc.id] ?? [];
+              // Go's omitempty doesn't skip zero time.Time, so unresolved
+              // incidents arrive over the wire as "0001-01-01T...". Treat
+              // that as unresolved.
+              const resolved = inc.resolved_at && !inc.resolved_at.startsWith("0001-") ? inc.resolved_at : "";
+              return (
+                <li key={inc.id} className="rounded border border-slate-200 p-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Pill tone={resolved ? "ok" : "critical"}>{resolved ? "resolved" : "firing"}</Pill>
+                    <span className="text-xs font-mono text-slate-500">{inc.id}</span>
+                    <span className="flex-1" />
+                    <span className="text-xs text-slate-500">triggered {fmtTime(inc.triggered_at)}</span>
+                    {resolved && <span className="text-xs text-slate-500">· resolved {fmtTime(resolved)}</span>}
+                  </div>
+                  {inc.last_value && <p className="mt-1 text-xs text-slate-500 font-mono">{inc.last_value}</p>}
+                  {notes.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs">
+                      {notes.map((n) => (
+                        <li key={n.id} className="flex items-center gap-2">
+                          <Pill tone={n.status === "ok" ? "ok" : "critical"}>{n.kind}</Pill>
+                          <span className="text-slate-600">{n.channel} → {n.address}</span>
+                          <span className="flex-1" />
+                          <span className="text-slate-400">{fmtTime(n.sent_at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function fmtTime(s?: string): string {
+  if (!s) return "";
+  try {
+    return new Date(s).toLocaleString();
+  } catch {
+    return s;
+  }
 }
 
 // ---------- Live State ----------
