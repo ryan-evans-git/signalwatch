@@ -19,9 +19,10 @@ permissions:
 env:
   # Security/license/binary-build jobs run against latest stable Go so
   # govulncheck sees stdlib fixes. `stable` resolves to the newest
-  # released minor (currently 1.26.x) which has all 1.25.10 std-lib
-  # fixes folded in. The matrix coverage job below tests against the
-  # floor (1.24.x) AND latest (1.25.x) explicitly.
+  # released minor (currently 1.26.x) which has all 1.25.x std-lib
+  # fixes folded in. The matrix coverage job below tests the floor
+  # declared by go.mod (1.25.x); the v0.2 deps pgx + testcontainers-go
+  # both require Go 1.25 features so 1.24 is no longer supported.
   GO_VERSION: "stable"
   NODE_VERSION: "22"
 
@@ -32,9 +33,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Test against the floor and the latest stable. The floor is what
-        # go.mod declares; bumping the floor is its own PR.
-        go: ["1.24.x", "1.25.x"]
+        # Floor only. Add older versions back here when go.mod's go
+        # directive lowers; bumping floors is its own PR.
+        go: ["1.25.x"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
