@@ -89,7 +89,17 @@ channels:
     type: slack
     slack:
       webhook_url: https://hooks.slack.com/services/XXX/YYY/ZZZ
+  - name: ops-pagerduty
+    type: pagerduty
+    pagerduty:
+      routing_key: 12345abcdef67890fedcba0987654321
+  - name: ops-teams
+    type: teams
+    teams:
+      webhook_url: https://outlook.office.com/webhook/.../IncomingWebhook/...
 ```
+
+Available channel `type`s: `smtp`, `slack`, `webhook`, `pagerduty`, `teams`. `pagerduty` uses the Events API v2 (trigger / resolve mapped from rule kind); subscribers can override the routing key via their channel binding's `address`. `teams` uses an incoming-webhook URL.
 
 See [`examples/`](./examples) for embedding the engine as a library, and [`docs/RULES.md`](./docs/RULES.md) for the rule reference.
 
