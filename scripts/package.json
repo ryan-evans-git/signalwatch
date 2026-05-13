@@ -1,0 +1,12 @@
+{
+  "name": "signalwatch-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Side-channel scripts (screenshot generation, etc.) kept out of web/package.json so the web app's dependency graph stays minimal.",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "playwright": "1.49.0"
+  }
+}

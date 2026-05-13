@@ -7,7 +7,7 @@ NPM ?= npm
 # truth — when a target diverges from CI, fix CI and update this Makefile.
 
 .PHONY: build web go test test-race test-pg test-mysql test-kafka test-sqs test-rabbitmq coverage coverage-html lint vet \
-        gosec govulncheck licenses verify clean tools
+        gosec govulncheck licenses verify clean tools screenshots
 
 build: web go
 
@@ -106,5 +106,12 @@ tools:
 	$(GO) install github.com/google/go-licenses@v1.6.0
 	$(GO) install github.com/vladopajic/go-test-coverage/v2@v2.18.8
 
+# Regenerate the README screenshots. Builds the binary, starts it on
+# 127.0.0.1:18080, seeds fixture data, drives Playwright/Chromium to
+# capture each tab, then tears everything down. Requires node + npm.
+# Chromium is cached in scripts/.playwright-cache (gitignored).
+screenshots:
+	./scripts/take-screenshots.sh
+
 clean:
-	rm -rf bin/ internal/ui/dist/* web/node_modules web/.vite cover.out coverage.html
+	rm -rf bin/ internal/ui/dist/* web/node_modules web/.vite cover.out coverage.html scripts/.playwright-cache
