@@ -79,6 +79,10 @@ curl -sX POST -H "Authorization: Bearer $SIGNALWATCH_API_TOKEN" \
 
 signalwatch emits OpenTelemetry traces when `OTEL_TRACES_EXPORTER` is set. Spans cover engine submit, dispatcher tick + deliver, and every channel send. See [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 
+### MCP / agent integration
+
+Every `/v1/*` endpoint is described in `docs/openapi.yaml` (OpenAPI 3.1) and the running server publishes the same spec at `GET /openapi.yaml` and `GET /openapi.json` — both unauthenticated, so MCP adapters can discover the schema without a credential. Drift between the spec and the mounted routes is caught by `internal/api/openapi_test.go` on every build. Wiring an OpenAPI→MCP bridge (`openapi-mcp-server`, `mcp-openapi-proxy`, `openapi-to-mcp`) gives an agent typed tools for every operation. See [`docs/MCP.md`](./docs/MCP.md).
+
 ### Screenshots
 
 A walkthrough of the bundled UI lives in [`docs/screenshots/`](./docs/screenshots/) and is rendered inline below. Regenerate the PNGs by running `make screenshots` (requires Docker for the binary and Node for Playwright).
