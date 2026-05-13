@@ -12,12 +12,18 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/ryan-evans-git/signalwatch/internal/channel"
 	"github.com/ryan-evans-git/signalwatch/internal/dispatcher"
 	"github.com/ryan-evans-git/signalwatch/internal/eval"
 	"github.com/ryan-evans-git/signalwatch/internal/input"
 	"github.com/ryan-evans-git/signalwatch/internal/input/event"
 	"github.com/ryan-evans-git/signalwatch/internal/input/sqlquery"
+	"github.com/ryan-evans-git/signalwatch/internal/observability"
 	"github.com/ryan-evans-git/signalwatch/internal/rule"
 	"github.com/ryan-evans-git/signalwatch/internal/store"
 )
@@ -91,6 +97,10 @@ func New(opts Options) (*Engine, error) {
 	if opts.MaxWindowSpan <= 0 {
 		opts.MaxWindowSpan = 24 * time.Hour
 	}
+
+	// Wrap each channel in an OTel tracing decorator. When tracing isn't
+	// configured the wrapper's spans land on the no-op tracer — cheap.
+	opts.Channels = observability.TraceChannels(opts.Channels)
 
 	cache := eval.NewCache()
 	helpers := eval.NewWindowBuffers(opts.MaxWindowSpan, time.Now)
@@ -181,7 +191,18 @@ func (e *Engine) Close() error {
 
 // Submit pushes a record into the engine's event input. inputRef may be
 // empty to use the configured event input's default.
-func (e *Engine) Submit(ctx context.Context, inputRef string, r Record) error {
+func (e *Engine) Submit(ctx context.Context, inputRef string, r Record) (err error) {
+	ctx, span := otel.Tracer(observability.TracerName).Start(ctx, "signalwatch.engine.submit",
+		trace.WithAttributes(attribute.String("signalwatch.input.ref", inputRef)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	if e.opts.EventInput == nil {
 		return errors.New("engine: no EventInput configured")
 	}

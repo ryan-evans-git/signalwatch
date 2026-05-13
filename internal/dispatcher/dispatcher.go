@@ -7,15 +7,27 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ryan-evans-git/signalwatch/internal/channel"
 	"github.com/ryan-evans-git/signalwatch/internal/rule"
 	"github.com/ryan-evans-git/signalwatch/internal/store"
 	"github.com/ryan-evans-git/signalwatch/internal/subscriber"
 )
+
+// tracerName matches observability.TracerName. Duplicated as a string here
+// to avoid an import cycle (observability imports channel; dispatcher
+// imports channel).
+const tracerName = "github.com/ryan-evans-git/signalwatch"
+
+func tracer() trace.Tracer { return otel.Tracer(tracerName) }
 
 // IDFunc returns a fresh unique identifier. Defaults to uuid.NewString.
 type IDFunc func() string
@@ -63,7 +75,23 @@ func New(opts Options) *Dispatcher {
 //
 // Tick is the single integration point between evaluators and the
 // dispatcher. Both push and scheduled evaluators call it.
-func (d *Dispatcher) Tick(ctx context.Context, r *rule.Rule, triggered bool, value string) error {
+func (d *Dispatcher) Tick(ctx context.Context, r *rule.Rule, triggered bool, value string) (err error) {
+	ctx, span := tracer().Start(ctx, "signalwatch.dispatcher.tick",
+		trace.WithAttributes(
+			attribute.String("signalwatch.rule.id", r.ID),
+			attribute.String("signalwatch.rule.name", r.Name),
+			attribute.String("signalwatch.severity", string(r.Severity)),
+			attribute.Bool("signalwatch.rule.triggered", triggered),
+		),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	now := d.now()
 
 	// 1. Load current live state (or seed an OK one).
@@ -213,6 +241,16 @@ func (d *Dispatcher) deliver(
 	value string,
 	now time.Time,
 ) error {
+	ctx, span := tracer().Start(ctx, "signalwatch.dispatcher.deliver",
+		trace.WithAttributes(
+			attribute.String("signalwatch.rule.id", r.ID),
+			attribute.String("signalwatch.incident.id", incidentID),
+			attribute.String("signalwatch.subscription.id", sub.ID),
+			attribute.String("signalwatch.notification.kind", string(kind)),
+		),
+	)
+	defer span.End()
+
 	subscriberRow, err := d.store.Subscribers().Get(ctx, sub.SubscriberID)
 	if err != nil {
 		return err
@@ -223,14 +261,21 @@ func (d *Dispatcher) deliver(
 
 	allowed := channelFilterSet(sub.ChannelFilter)
 
+	var (
+		sentOK  int
+		sentErr int
+		skipped int
+	)
 	for _, binding := range subscriberRow.Channels {
 		if allowed != nil {
 			if _, ok := allowed[binding.Channel]; !ok {
+				skipped++
 				continue
 			}
 		}
 		ch, ok := d.channels[binding.Channel]
 		if !ok {
+			skipped++
 			d.logger.Warn("dispatcher.channel_not_configured",
 				"channel", binding.Channel, "subscriber", subscriberRow.ID)
 			continue
@@ -261,17 +306,27 @@ func (d *Dispatcher) deliver(
 		}
 
 		if err := ch.Send(ctx, n); err != nil {
+			sentErr++
 			audit.Status = "error"
 			audit.Error = err.Error()
 			d.logger.Warn("dispatcher.send_failed",
 				"channel", binding.Channel, "subscription", sub.ID, "err", err)
 		} else {
+			sentOK++
 			audit.Status = "ok"
 		}
 
 		if err := d.store.Notifications().Record(ctx, audit); err != nil {
 			d.logger.Error("dispatcher.record_failed", "err", err)
 		}
+	}
+	span.SetAttributes(
+		attribute.Int("signalwatch.deliver.sent_ok", sentOK),
+		attribute.Int("signalwatch.deliver.sent_err", sentErr),
+		attribute.Int("signalwatch.deliver.skipped", skipped),
+	)
+	if sentErr > 0 {
+		span.SetStatus(codes.Error, strconv.Itoa(sentErr)+" channel send(s) failed")
 	}
 	return nil
 }

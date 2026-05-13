@@ -33,9 +33,12 @@ import (
 	"github.com/ryan-evans-git/signalwatch/internal/input/event"
 	"github.com/ryan-evans-git/signalwatch/internal/input/scrape"
 	"github.com/ryan-evans-git/signalwatch/internal/input/sqlquery"
+	"github.com/ryan-evans-git/signalwatch/internal/observability"
 	"github.com/ryan-evans-git/signalwatch/internal/retention"
 	"github.com/ryan-evans-git/signalwatch/internal/store/sqlite"
 	"github.com/ryan-evans-git/signalwatch/internal/ui"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type config struct {
@@ -226,6 +229,20 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// OpenTelemetry tracing is opt-in via OTEL_TRACES_EXPORTER; when unset
+	// the SDK stays no-op. shutdownOtel always flushes, even on Setup error.
+	shutdownOtel, err := observability.Setup(ctx, observability.SetupOptions{})
+	if err != nil {
+		return fmt.Errorf("observability: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownOtel(shutdownCtx); err != nil {
+			logger.Warn("observability.shutdown_error", "err", err)
+		}
+	}()
+
 	if err := eng.Start(ctx); err != nil {
 		return fmt.Errorf("engine start: %w", err)
 	}
@@ -261,9 +278,16 @@ func run() error {
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
+	// otelhttp wraps the mux with span creation + W3C trace-context
+	// propagation. The wrapper is harmless when OTel is in no-op mode.
+	tracedMux := otelhttp.NewHandler(mux, "signalwatch.http",
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+	)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           withLogging(logger, mux),
+		Handler:           withLogging(logger, tracedMux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
