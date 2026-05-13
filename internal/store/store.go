@@ -58,6 +58,15 @@ type IncidentRepo interface {
 	Get(ctx context.Context, id string) (*subscriber.Incident, error)
 	List(ctx context.Context, limit int) ([]*subscriber.Incident, error)
 	ListForRule(ctx context.Context, ruleID string, limit int) ([]*subscriber.Incident, error)
+	// ListResolvedBefore returns incidents whose resolved_at is non-
+	// null and strictly before t. Used by the retention pruner to
+	// identify candidates for archival + deletion.
+	ListResolvedBefore(ctx context.Context, t int64) ([]*subscriber.Incident, error)
+	// DeleteResolvedBefore deletes all incidents whose resolved_at is
+	// non-null and strictly before t. Cascades to the incident's
+	// notifications and incident_sub_states. Returns the number of
+	// incidents deleted.
+	DeleteResolvedBefore(ctx context.Context, t int64) (int, error)
 }
 
 type NotificationRepo interface {
