@@ -19,9 +19,10 @@ permissions:
 env:
   # Security/license/binary-build jobs run against latest stable Go so
   # govulncheck sees stdlib fixes. `stable` resolves to the newest
-  # released minor (currently 1.26.x) which has all 1.25.10 std-lib
-  # fixes folded in. The matrix coverage job below tests against the
-  # floor (1.24.x) AND latest (1.25.x) explicitly.
+  # released minor (currently 1.26.x) which has all 1.25.x std-lib
+  # fixes folded in. The matrix coverage job below tests the floor
+  # declared by go.mod (1.25.x); the v0.2 deps pgx + testcontainers-go
+  # both require Go 1.25 features so 1.24 is no longer supported.
   GO_VERSION: "stable"
   NODE_VERSION: "22"
 
@@ -32,9 +33,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Test against the floor and the latest stable. The floor is what
-        # go.mod declares; bumping the floor is its own PR.
-        go: ["1.24.x", "1.25.x"]
+        # Floor only. Add older versions back here when go.mod's go
+        # directive lowers; bumping floors is its own PR.
+        go: ["1.25.x"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -163,6 +164,24 @@ jobs:
       - name: tsc + vite build
         working-directory: web
         run: npm run build
+
+  test-postgres:
+    name: test (postgres integration)
+    runs-on: ubuntu-latest
+    # GitHub-hosted ubuntu-latest ships with Docker, which testcontainers-
+    # go uses to spin up a real Postgres for the conformance suite. The
+    # tests are tagged `integration` so the default test job in the
+    # matrix above skips them — this is the only place they run.
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: go mod verify
+        run: go mod verify
+      - name: postgres conformance
+        run: go test -race -tags=integration -timeout=5m ./internal/store/postgres/...
 
   binary-build:
     name: binary build (sanity)

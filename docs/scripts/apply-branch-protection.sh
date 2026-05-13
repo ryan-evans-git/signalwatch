@@ -7,8 +7,8 @@ REPO="${REPO:-ryan-evans-git/signalwatch}"
 BRANCH="${BRANCH:-main}"
 
 REQUIRED_CHECKS='[
-  "lint + test + coverage (go1.24.x)",
   "lint + test + coverage (go1.25.x)",
+  "test (postgres integration)",
   "gosec + govulncheck",
   "license policy (block GPL/AGPL/SSPL/BUSL/Elastic/Commons-Clause)",
   "trivy (filesystem)",

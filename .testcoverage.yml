@@ -31,6 +31,12 @@ exclude:
     # zero. They're not production code; they're the conformance suite
     # itself.
     - internal/store/storetest/
+    # The Postgres store's tests are tagged `integration` and run via
+    # the test-postgres CI job (testcontainers-go spinning up a real
+    # Postgres). They contribute no coverage to the default `go test
+    # ./...` invocation that this gate measures. The test-postgres job
+    # is itself required to pass on every PR via branch protection.
+    - internal/store/postgres/
 
 # Regenerate cover.out via:
 #   go test -coverprofile=cover.out -coverpkg=./... -covermode=atomic ./...

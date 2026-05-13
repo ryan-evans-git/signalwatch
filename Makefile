@@ -6,7 +6,7 @@ NPM ?= npm
 # Local-dev parity with the CI pipeline. The CI workflow is the source of
 # truth — when a target diverges from CI, fix CI and update this Makefile.
 
-.PHONY: build web go test test-race coverage coverage-html lint vet \
+.PHONY: build web go test test-race test-pg coverage coverage-html lint vet \
         gosec govulncheck licenses verify clean tools
 
 build: web go
@@ -23,6 +23,12 @@ test:
 
 test-race:
 	$(GO) test -race ./...
+
+# Run the Postgres conformance suite. Requires Docker (testcontainers-go
+# pulls a Postgres image and tears it down). Use this locally when
+# changing internal/store/postgres; CI runs it on every PR.
+test-pg:
+	$(GO) test -race -tags=integration ./internal/store/postgres/...
 
 # Coverage profile + summary. Matches the CI invocation exactly.
 coverage:
@@ -72,11 +78,11 @@ verify: lint vet test-race coverage-gate gosec govulncheck licenses
 
 # One-shot installer for every CLI tool the local-dev gates need.
 tools:
-	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.2
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 	$(GO) install github.com/securego/gosec/v2/cmd/gosec@v2.22.0
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GO) install github.com/google/go-licenses@v1.6.0
-	$(GO) install github.com/vladopajic/go-test-coverage/v2@v2.16.0
+	$(GO) install github.com/vladopajic/go-test-coverage/v2@v2.18.8
 
 clean:
 	rm -rf bin/ internal/ui/dist/* web/node_modules web/.vite cover.out coverage.html
