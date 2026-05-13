@@ -39,6 +39,16 @@ type Subscription struct {
 	RepeatInterval  time.Duration `json:"repeat_interval"`
 	NotifyOnResolve bool          `json:"notify_on_resolve"`
 
+	// OneShot caps this subscription at exactly one successful
+	// notification across its lifetime. After the first delivery (the
+	// firing notification on the first incident), the dispatcher
+	// silently skips every subsequent send for this subscription —
+	// renotifies within the incident, resolution pings, AND new
+	// incidents. Use for "let me know once when X happens; I don't
+	// need a recurring stream." Defaults to false (multi-incident
+	// behavior unchanged).
+	OneShot bool `json:"one_shot,omitempty"`
+
 	// ChannelFilter, if non-empty, restricts which of the subscriber's
 	// channels are used for this subscription.
 	ChannelFilter []string `json:"channel_filter,omitempty"`

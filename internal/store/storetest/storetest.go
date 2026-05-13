@@ -52,6 +52,7 @@ func RunConformance(t *testing.T, factory Factory) {
 		t.Run("ListForRuleDirectAndLabelSelector", func(t *testing.T) { testSubscriptionsListForRule(t, factory) })
 		t.Run("EmptySelectorIgnored", func(t *testing.T) { testSubscriptionsEmptySelectorIgnored(t, factory) })
 		t.Run("ExplicitCreatedAtAndDuplicate", func(t *testing.T) { testSubscriptionsExplicit(t, factory) })
+		t.Run("OneShotRoundTrips", func(t *testing.T) { testSubscriptionsOneShot(t, factory) })
 	})
 	t.Run("Incidents", func(t *testing.T) {
 		t.Run("OpenResolveGet", func(t *testing.T) { testIncidentsOpenResolve(t, factory) })
@@ -63,6 +64,7 @@ func RunConformance(t *testing.T, factory Factory) {
 	t.Run("Notifications", func(t *testing.T) {
 		t.Run("RecordAndList", func(t *testing.T) { testNotificationsList(t, factory) })
 		t.Run("RecordWithError", func(t *testing.T) { testNotificationsError(t, factory) })
+		t.Run("ExistsForSubscription", func(t *testing.T) { testNotificationsExistsForSubscription(t, factory) })
 	})
 	t.Run("LiveStates", func(t *testing.T) {
 		t.Run("UpsertGetList", func(t *testing.T) { testLiveStatesUpsert(t, factory) })
@@ -965,5 +967,84 @@ func testAPITokensExpiresAtRoundTrip(t *testing.T, factory Factory) {
 	got, _ := repo.GetByHash(ctx, "hash-exp")
 	if got.ExpiresAt == nil || got.ExpiresAt.UnixMilli() != exp.UnixMilli() {
 		t.Fatalf("ExpiresAt: %+v want %s", got.ExpiresAt, exp)
+	}
+}
+
+// testSubscriptionsOneShot pins the OneShot bool round-trips through
+// Create / Get / Update. Defaults to false; setting it true must
+// persist; flipping it back to false on Update must clear it.
+func testSubscriptionsOneShot(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	seedRuleSub(t, st, "r-os")
+	repo := st.Subscriptions()
+
+	s := &subscriber.Subscription{
+		ID: "subscr-os", SubscriberID: "sub-r-os", RuleID: "r-os",
+		OneShot: true,
+	}
+	if err := repo.Create(ctx, s); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, _ := repo.Get(ctx, "subscr-os")
+	if got == nil || !got.OneShot {
+		t.Fatalf("OneShot not round-tripped on Create: %+v", got)
+	}
+
+	got.OneShot = false
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got2, _ := repo.Get(ctx, "subscr-os")
+	if got2.OneShot {
+		t.Fatalf("OneShot=false not persisted on Update: %+v", got2)
+	}
+}
+
+// testNotificationsExistsForSubscription pins the lookup the dispatcher
+// uses to enforce one_shot: zero rows ⇒ false, one+ rows ⇒ true. Errors
+// from missing subscriptions return (false, nil) — the absence of rows.
+func testNotificationsExistsForSubscription(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	seedRuleSub(t, st, "r-ex")
+	if err := st.Subscriptions().Create(ctx, &subscriber.Subscription{
+		ID: "subscr-ex", SubscriberID: "sub-r-ex", RuleID: "r-ex",
+	}); err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	if err := st.Incidents().Open(ctx, &subscriber.Incident{
+		ID: "inc-ex", RuleID: "r-ex", TriggeredAt: time.UnixMilli(1),
+	}); err != nil {
+		t.Fatalf("seed incident: %v", err)
+	}
+	notes := st.Notifications()
+
+	seen, err := notes.ExistsForSubscription(ctx, "subscr-ex")
+	if err != nil {
+		t.Fatalf("ExistsForSubscription pre-record: %v", err)
+	}
+	if seen {
+		t.Fatalf("ExistsForSubscription should be false before any record")
+	}
+
+	if err := notes.Record(ctx, &subscriber.Notification{
+		ID: "n-ex", IncidentID: "inc-ex", SubscriptionID: "subscr-ex",
+		SubscriberID: "sub-r-ex", Channel: "webhook", Address: "url",
+		Kind: subscriber.KindFiring, SentAt: time.UnixMilli(2), Status: "ok",
+	}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	seen, err = notes.ExistsForSubscription(ctx, "subscr-ex")
+	if err != nil {
+		t.Fatalf("ExistsForSubscription post-record: %v", err)
+	}
+	if !seen {
+		t.Fatalf("ExistsForSubscription should be true after a record")
+	}
+
+	// Negative lookup: unrelated subscription ID returns false.
+	if got, err := notes.ExistsForSubscription(ctx, "subscr-missing"); err != nil || got {
+		t.Fatalf("missing subscription: want (false, nil), got (%v, %v)", got, err)
 	}
 }

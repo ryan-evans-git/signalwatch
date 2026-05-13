@@ -385,7 +385,12 @@ type subscriptionPayload struct {
 	DwellSec          float64           `json:"dwell_seconds"`
 	RepeatIntervalSec float64           `json:"repeat_interval_seconds"`
 	NotifyOnResolve   bool              `json:"notify_on_resolve"`
-	ChannelFilter     []string          `json:"channel_filter,omitempty"`
+	// OneShot caps the subscription at exactly one successful
+	// notification across its lifetime. The dispatcher silently skips
+	// every subsequent deliver. See subscriber.Subscription.OneShot
+	// for full semantics.
+	OneShot       bool     `json:"one_shot"`
+	ChannelFilter []string `json:"channel_filter,omitempty"`
 }
 
 func (p *subscriptionPayload) toSubscription() *subscriber.Subscription {
@@ -397,6 +402,7 @@ func (p *subscriptionPayload) toSubscription() *subscriber.Subscription {
 		Dwell:           time.Duration(p.DwellSec * float64(time.Second)),
 		RepeatInterval:  time.Duration(p.RepeatIntervalSec * float64(time.Second)),
 		NotifyOnResolve: p.NotifyOnResolve,
+		OneShot:         p.OneShot,
 		ChannelFilter:   p.ChannelFilter,
 	}
 	if s.ID == "" {
@@ -414,6 +420,7 @@ func subscriptionToPayload(s *subscriber.Subscription) subscriptionPayload {
 		DwellSec:          s.Dwell.Seconds(),
 		RepeatIntervalSec: s.RepeatInterval.Seconds(),
 		NotifyOnResolve:   s.NotifyOnResolve,
+		OneShot:           s.OneShot,
 		ChannelFilter:     s.ChannelFilter,
 	}
 }

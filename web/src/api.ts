@@ -54,6 +54,12 @@ export interface Subscription {
   dwell_seconds: number;
   repeat_interval_seconds: number;
   notify_on_resolve: boolean;
+  /**
+   * one_shot caps the subscription at exactly one successful
+   * notification across its lifetime; subsequent deliveries are
+   * silently suppressed by the dispatcher.
+   */
+  one_shot?: boolean;
   channel_filter?: string[];
 }
 

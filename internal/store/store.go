@@ -101,6 +101,14 @@ type NotificationRepo interface {
 	Record(ctx context.Context, n *subscriber.Notification) error
 	ListForIncident(ctx context.Context, incidentID string) ([]*subscriber.Notification, error)
 	List(ctx context.Context, limit int) ([]*subscriber.Notification, error)
+	// ExistsForSubscription reports whether any prior notification row
+	// (ok OR error status) exists for subscriptionID. Used by the
+	// one-shot subscription gate in the dispatcher — a "yes" here means
+	// the dispatcher must suppress further delivery on that
+	// subscription. The implementation should be index-backed
+	// (notifications.subscription_id has an index from the 0003
+	// migration on each driver).
+	ExistsForSubscription(ctx context.Context, subscriptionID string) (bool, error)
 }
 
 type LiveStateRepo interface {

@@ -251,6 +251,24 @@ func (d *Dispatcher) deliver(
 	)
 	defer span.End()
 
+	// One-shot gate. A OneShot subscription delivers EXACTLY ONE
+	// notification across its lifetime — across incidents, kinds, and
+	// renotifies. The cheapest signal we have is "did we ever record a
+	// notification row for this subscription_id?"; if yes, every later
+	// dispatch is a no-op. The index added in migration 0003 keeps the
+	// query O(1). We check before the channel send (and before any
+	// store side-effect) so the suppression is total.
+	if sub.OneShot {
+		seen, err := d.store.Notifications().ExistsForSubscription(ctx, sub.ID)
+		if err != nil {
+			return fmt.Errorf("dispatcher: one_shot lookup: %w", err)
+		}
+		if seen {
+			span.SetAttributes(attribute.Bool("signalwatch.deliver.one_shot_skipped", true))
+			return nil
+		}
+	}
+
 	subscriberRow, err := d.store.Subscribers().Get(ctx, sub.SubscriberID)
 	if err != nil {
 		return err

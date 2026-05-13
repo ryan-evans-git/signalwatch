@@ -514,6 +514,7 @@ function SubscriptionsPanel() {
               <th className="py-2 pr-4">Dwell</th>
               <th className="py-2 pr-4">Repeat</th>
               <th className="py-2 pr-4">Resolve?</th>
+              <th className="py-2 pr-4">Mode</th>
               <th className="py-2 pr-4"></th>
             </tr>
           </thead>
@@ -525,12 +526,13 @@ function SubscriptionsPanel() {
                 <td className="py-2 pr-4">{s.dwell_seconds || 0}s</td>
                 <td className="py-2 pr-4">{s.repeat_interval_seconds || 0}s</td>
                 <td className="py-2 pr-4">{s.notify_on_resolve ? <Pill tone="ok">yes</Pill> : <Pill tone="neutral">no</Pill>}</td>
+                <td className="py-2 pr-4">{s.one_shot ? <Pill tone="ok">one-shot</Pill> : <Pill tone="neutral">recurring</Pill>}</td>
                 <td className="py-2 pr-4 text-right">
                   <button onClick={async () => { await api.subscriptions.remove(s.id); reload(); }} className="text-xs text-rose-600 hover:underline">delete</button>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-slate-400">No subscriptions yet.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-slate-400">No subscriptions yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -544,6 +546,7 @@ function NewSubscriptionForm({ rules, subs, onCreated }: { rules: Rule[]; subs: 
   const [dwell, setDwell] = useState(0);
   const [repeat, setRepeat] = useState(0);
   const [resolve, setResolve] = useState(true);
+  const [oneShot, setOneShot] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
@@ -555,6 +558,7 @@ function NewSubscriptionForm({ rules, subs, onCreated }: { rules: Rule[]; subs: 
         dwell_seconds: Number(dwell),
         repeat_interval_seconds: Number(repeat),
         notify_on_resolve: resolve,
+        one_shot: oneShot,
       });
       onCreated();
     } catch (e) { setErr(String(e)); }
@@ -578,6 +582,10 @@ function NewSubscriptionForm({ rules, subs, onCreated }: { rules: Rule[]; subs: 
       <label className="col-span-2 flex items-center gap-2 text-sm">
         <input type="checkbox" checked={resolve} onChange={(e) => setResolve(e.target.checked)} />
         Notify on resolve
+      </label>
+      <label className="col-span-2 flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={oneShot} onChange={(e) => setOneShot(e.target.checked)} />
+        One-time notification (fire once, ever; no repeats, no resolve ping, no new-incident refires)
       </label>
       <div className="col-span-2 flex justify-end">
         <button className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700">Create</button>

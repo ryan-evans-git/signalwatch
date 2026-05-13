@@ -4,6 +4,10 @@ All notable changes to signalwatch are recorded here. Format adheres to [Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- **One-shot subscriptions.** New `one_shot` bool on `Subscription` (defaults to false). When true, the dispatcher delivers exactly one notification across the subscription's lifetime — no renotifies, no resolve ping, no refire on a new incident. Backed by a new `NotificationRepo.ExistsForSubscription` index-backed lookup added on all three drivers (migration `0003`). UI exposes it as a checkbox on the subscription form ("One-time notification") and surfaces the mode as a pill on the list. API uses the `one_shot` JSON field on the existing `subscriptionPayload`.
+
 ## [0.4.0] — 2026-05-13
 
 First published release. Closes out Program Increment 3 ("Production hardening + cloud scale"). Repo is signed-commit-only on `main`, 17 required status checks, ≥90% coverage gate.
