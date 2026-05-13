@@ -4,6 +4,12 @@ All notable changes to signalwatch are recorded here. Format adheres to [Keep a 
 
 ## [Unreleased]
 
+### Added (PI 2)
+
+- **Expression-language conditions.** New `expression` rule condition type via [expr-lang/expr](https://github.com/expr-lang/expr). Push- or scheduled-evaluable; sandboxed env (no `os.*`, no I/O); record field access in push mode plus the same window helpers as `window_aggregate` (`avg_over`, `sum_over`, `min_over`, `max_over`, `count_over`, `regex_match`); flexible duration parsing (`"30d"`, `"2w"` plus everything `time.ParseDuration` accepts). New `POST /v1/rules/validate` endpoint compiles a candidate rule without persisting so the UI can surface compile errors before submit; bundled UI's rule form gains a condition-type selector + textarea + Validate button.
+- **UI deps refresh.** TypeScript 5 → 6, Vite 5 → 8, @vitejs/plugin-react 4 → 6, react / react-dom 18 → 19, tailwindcss 3 → 4 (CSS-first config; dropped tailwind.config.js + postcss.config.js + autoprefixer + postcss; added @tailwindcss/vite).
+- **PI 2 plan.** Six sprints to `v0.3.0`: this expression work, then DuckDB datasource, PagerDuty/Teams channels, Discord/Twilio SMS channels, per-rule incident drill-down UI + alert-history export, release.
+
 ### Added
 
 - **Postgres store** — `internal/store/postgres` via `jackc/pgx/v5`. Schema mirrors sqlite with `BIGINT` for ms-resolution timestamps. Drop-in replacement for sqlite via the `Store` interface.

@@ -207,28 +207,74 @@ function summarizeCondition(r: Rule): string {
       return `${c.spec.field} ${c.spec.kind} "${c.spec.pattern}"`;
     case "sql_returns_rows":
       return `sql(${c.spec.data_source}) >= ${c.spec.min_rows}`;
+    case "expression": {
+      const truncated = c.spec.expr.length > 60 ? c.spec.expr.slice(0, 59) + "…" : c.spec.expr;
+      return `expr${c.spec.mode === "scheduled" ? "@scheduled" : ""}: ${truncated}`;
+    }
   }
 }
+
+type ConditionKind = "pattern_match" | "expression";
 
 function NewRuleForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
   const [inputRef, setInputRef] = useState("events");
   const [severity, setSeverity] = useState<"info" | "warning" | "critical">("warning");
+  const [kind, setKind] = useState<ConditionKind>("pattern_match");
+
+  // Pattern-match fields.
   const [field, setField] = useState("level");
   const [pattern, setPattern] = useState("ERROR");
+
+  // Expression fields.
+  const [expr, setExpr] = useState(`record.level == "ERROR"`);
+  const [exprMode, setExprMode] = useState<"push" | "scheduled">("push");
+  const [scheduleSeconds, setScheduleSeconds] = useState<number>(300);
+  const [validateMsg, setValidateMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const [err, setErr] = useState<string | null>(null);
+
+  function buildPayload(): Partial<Rule> {
+    if (kind === "expression") {
+      const payload: Partial<Rule> = {
+        name,
+        enabled: true,
+        severity,
+        input_ref: inputRef,
+        condition: {
+          type: "expression",
+          spec: { expr, mode: exprMode },
+        } as Rule["condition"],
+      };
+      if (exprMode === "scheduled") {
+        payload.schedule_seconds = scheduleSeconds;
+      }
+      return payload;
+    }
+    return {
+      name,
+      enabled: true,
+      severity,
+      input_ref: inputRef,
+      condition: { type: "pattern_match", spec: { field, kind: "contains", pattern } },
+    };
+  }
+
+  async function validate() {
+    setValidateMsg(null);
+    try {
+      await api.rules.validate(buildPayload());
+      setValidateMsg({ ok: true, text: "Compiles cleanly." });
+    } catch (e) {
+      setValidateMsg({ ok: false, text: String(e) });
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     try {
-      await api.rules.create({
-        name,
-        enabled: true,
-        severity,
-        input_ref: inputRef,
-        condition: { type: "pattern_match", spec: { field, kind: "contains", pattern } },
-      });
+      await api.rules.create(buildPayload());
       onCreated();
     } catch (e) {
       setErr(String(e));
@@ -247,9 +293,60 @@ function NewRuleForm({ onCreated }: { onCreated: () => void }) {
           <option value="critical">critical</option>
         </select>
       </Field>
-      <Field label="Field"><input className="input" value={field} onChange={(e) => setField(e.target.value)} /></Field>
-      <Field label="Substring pattern"><input className="input" value={pattern} onChange={(e) => setPattern(e.target.value)} /></Field>
-      <div className="col-span-2 flex justify-end">
+      <Field label="Condition type">
+        <select className="input" value={kind} onChange={(e) => setKind(e.target.value as ConditionKind)}>
+          <option value="pattern_match">Pattern match</option>
+          <option value="expression">Expression</option>
+        </select>
+      </Field>
+      {kind === "pattern_match" && (
+        <>
+          <Field label="Field"><input className="input" value={field} onChange={(e) => setField(e.target.value)} /></Field>
+          <Field label="Substring pattern"><input className="input" value={pattern} onChange={(e) => setPattern(e.target.value)} /></Field>
+        </>
+      )}
+      {kind === "expression" && (
+        <>
+          <Field label="Expression mode">
+            <select className="input" value={exprMode} onChange={(e) => setExprMode(e.target.value as typeof exprMode)}>
+              <option value="push">push (per record)</option>
+              <option value="scheduled">scheduled (interval)</option>
+            </select>
+          </Field>
+          {exprMode === "scheduled" && (
+            <Field label="Schedule (seconds)">
+              <input
+                type="number"
+                min={1}
+                className="input"
+                value={scheduleSeconds}
+                onChange={(e) => setScheduleSeconds(Number(e.target.value))}
+              />
+            </Field>
+          )}
+          <label className="col-span-2 flex flex-col gap-1 text-sm">
+            <span className="text-xs uppercase text-slate-400 tracking-wide">Expression</span>
+            <textarea
+              className="input font-mono"
+              rows={4}
+              value={expr}
+              onChange={(e) => setExpr(e.target.value)}
+              placeholder={`record.level == "ERROR"  or  avg_over("mpg", "30d") < 5`}
+            />
+          </label>
+          {validateMsg && (
+            <div className={`col-span-2 rounded px-3 py-2 text-xs ${validateMsg.ok ? "bg-green-50 text-green-700" : "bg-rose-50 text-rose-700"}`}>
+              {validateMsg.text}
+            </div>
+          )}
+        </>
+      )}
+      <div className="col-span-2 flex justify-end gap-2">
+        {kind === "expression" && (
+          <button type="button" onClick={validate} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">
+            Validate
+          </button>
+        )}
         <button className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700">Create rule</button>
       </div>
     </form>

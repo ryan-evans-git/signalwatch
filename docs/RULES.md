@@ -77,6 +77,51 @@ Triggers when a SQL query against a registered datasource returns at least `min_
 
 The `default` datasource is the engine's own state SQLite DB. Register your own datasources programmatically when constructing the engine via `engine.Options.SQLDatasources`.
 
+### `expression`
+
+The escape hatch for everything the four typed conditions don't cover. Evaluates an [expr-lang](https://github.com/expr-lang/expr) program against either the inbound record (push mode) or the rule's helper environment (scheduled mode). Triggers when the program returns `true`.
+
+```json
+{
+  "type": "expression",
+  "spec": {
+    "expr": "record.level == \"ERROR\" && regex_match(\"host\", \"^web-\")",
+    "mode": "push"
+  }
+}
+```
+
+Scheduled flavor — the same `30d avg MPG` rule expressed as expr:
+
+```json
+{
+  "type": "expression",
+  "spec": {
+    "expr": "avg_over(\"mpg\", \"30d\") < 5",
+    "mode": "scheduled"
+  },
+  "schedule_seconds": 3600
+}
+```
+
+**Available bindings**
+
+- `record` — only meaningful in push mode. A map keyed by the inbound record's field names; access fields as `record.level` or `record["level"]`.
+- `avg_over(field, window)`, `sum_over(field, window)`, `min_over(field, window)`, `max_over(field, window)`, `count_over(field, window)` — window-aware aggregations over the rule's input. Available in scheduled mode (and in push mode if the engine is tracking a record buffer for that input). Return `(float64, bool)` — the bool is `false` when there's no data; comparison expressions against a literal will simply not trigger.
+- `regex_match(field, pattern)` — in scheduled mode runs against the helper's record buffer; in push mode (or without helpers) runs against the current `record`. Returns `bool` and may error on malformed patterns.
+- All of expr's [built-in functions](https://expr-lang.org/docs/language-definition) — `len`, `lower`, `upper`, `contains`, `startsWith`, `endsWith`, `matches`, ternary, set, array, map, etc.
+
+**Window durations** accept anything `time.ParseDuration` accepts (e.g. `"5m"`, `"1h30m"`, `"1.5s"`) plus `"Xd"` (days) and `"Xw"` (weeks). Suffixes can't be mixed: `"30d"` is valid; for `"30d12h"` use `"732h"`.
+
+**Mode and scheduling**
+
+- `"push"` (default) runs on every record from the rule's `input_ref`. Omit or set `schedule_seconds` to `0`.
+- `"scheduled"` runs on the rule's interval (`schedule_seconds` must be > 0).
+
+**Validation** — the API exposes `POST /v1/rules/validate` which compiles the candidate rule and returns 400 with the error message if the expression fails to compile. The bundled UI's rule form has a *Validate* button that calls it.
+
+**Sandbox** — expr programs run in a sealed env: no access to `os.*`, no filesystem, no network. Only the bindings listed above are reachable.
+
 ## Choosing push vs scheduled
 
 | Want to detect... | Use... |
@@ -85,6 +130,7 @@ The `default` datasource is the engine's own state SQLite DB. Register your own 
 | Trends over time (avg over a window crossed a line) | `window_aggregate` |
 | Operational-data conditions (a row exists that shouldn't) | `sql_returns_rows` |
 | Queue/log message containing a specific phrase | `pattern_match` on a stream-input record |
+| Anything composing record fields with helpers or expr's built-ins | `expression` |
 
 ## Subscriptions and delivery
 
