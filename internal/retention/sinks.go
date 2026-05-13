@@ -53,13 +53,12 @@ func (a *JSONFileArchiver) Archive(_ context.Context, inc *subscriber.Incident, 
 		if err := os.MkdirAll(a.Dir, 0o750); err != nil {
 			return fmt.Errorf("retention: mkdir: %w", err)
 		}
-		// #nosec G304 -- a.Dir is an operator-configured archive
-		// directory (same trust boundary as cmd/signalwatch's
-		// --config flag); the inclusion-via-variable shape is
-		// intentional.
 		path := filepath.Join(a.Dir, "incidents-"+date+".jsonl")
-		// #nosec G302 -- archive files are world-readable so log-
-		// shipping daemons can pick them up without elevated
+		// #nosec G302,G304 -- G304: a.Dir is an operator-configured
+		// archive directory (same trust boundary as cmd/signalwatch's
+		// --config flag); the inclusion-via-variable shape is
+		// intentional. G302: archive files are world-readable so
+		// log-shipping daemons can pick them up without elevated
 		// privileges; operators who want stricter perms can set a
 		// umask before launching the binary.
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
