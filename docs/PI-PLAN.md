@@ -249,13 +249,24 @@ Acceptance:
 
 ---
 
-## PI 3 — "Production hardening + cloud scale → `v0.4.0`" (≈ 12 weeks, 6 sprints)
+## PI 3 — "Production hardening + cloud scale → `v0.4.0`" (≈ 12 weeks, 6 sprints) — **DELIVERED 2026-05-13**
+
+**Outcome.** signalwatch now runs against MSK and Google Pub/Sub in addition to on-prem Kafka/SQS/RabbitMQ. Resolved incidents prune on a configurable window with optional JSON-file or webhook archival. The engine emits OpenTelemetry traces across every hot path (engine submit → dispatcher tick → channel send) wired up via standard `OTEL_*` env vars. The shared-token auth model is supplemented by DB-stored, scoped, expiring per-user tokens; the legacy shared token continues to work for back-compat. Repo coverage stayed above 95% throughout. Branch protection now requires 17 status checks (added pubsub-integration on top of the PI 2 baseline). `v0.4.0` tagged 2026-05-13.
+
+| Sprint | Theme | Outcome |
+| --- | --- | --- |
+| 13 | MSK IAM-SASL | `SASL` config on `internal/input/stream/kafka`; AWS default-chain credentials; plain dialing remains default |
+| 14 | Google Pub/Sub | `internal/input/stream/pubsub` via `cloud.google.com/go/pubsub` v1.50.2; ADC creds; new `test (pubsub integration)` CI job |
+| 15 | Retention + archival | `internal/retention` pruner; JSON-file + webhook sinks; new `IncidentRepo.ListResolvedBefore` / `DeleteResolvedBefore` across all three drivers |
+| 16 | OpenTelemetry | `internal/observability`; spans on engine/dispatcher/channels; otelhttp inbound; W3C propagation |
+| 17 | Per-user API tokens | `internal/auth` + `api_tokens` table; `admin`/`read` scopes; `POST/GET/DELETE /v1/auth/tokens`; legacy shared token still accepted |
+| 18 | `v0.4.0` release prep | Dependabot triage (`modernc.org/sqlite` v1.50.1, otelhttp v0.68.0, gRPC v1.81.0, api v0.279.0); CHANGELOG cut; tag |
 
 **PI goal:** signalwatch becomes operationally credible at scale. Cloud-managed streams (the obvious "I run my alerts off MSK / Pub/Sub" deployments), retention so the store doesn't grow unboundedly, observability so operators can see what the engine is doing, and per-user API tokens replacing the shared-secret model from PI 1. PI ends with a signed `v0.4.0` release.
 
 The operating contract carries forward unchanged: TDD-first, 90% gate enforced, branch-protected `main`, signed commits, linear history, 16 status checks (more added as new integration jobs land).
 
-### Sprint 13 — MSK (AWS-managed Kafka) input
+### Sprint 13 — MSK (AWS-managed Kafka) input — **delivered**
 
 **Goal:** the existing `internal/input/stream/kafka` package gains an AWS-IAM-SASL auth path so it can connect to MSK without a static username/password. Most cloud-Kafka deployments use IAM, so this unblocks the biggest hosted-Kafka case.
 
@@ -271,7 +282,7 @@ Acceptance:
 - A configured MSK-style channel signs its SASL/AUTHENTICATE frames against the AWS SDK credential chain. Unit tests fake the signer and assert the kafka-go Reader is constructed with the correct mechanism.
 - Existing `test (kafka integration)` job stays green (no regression on plain Kafka).
 
-### Sprint 14 — Google Pub/Sub input
+### Sprint 14 — Google Pub/Sub input — **delivered**
 
 **Goal:** new `internal/input/stream/pubsub` package consuming from GCP Pub/Sub subscriptions. Symmetric with the Kafka / SQS / RabbitMQ shape: per-subscription goroutine, JSON-object decoding, ack on success, dead-letter on bad messages.
 
@@ -286,7 +297,7 @@ Acceptance:
 
 - A configured `pubsub` channel polls a real emulator-backed subscription, decodes JSON-object messages, emits `EvaluationRecord`s, and acks. Bad messages are nacked-with-no-redelivery (or dead-lettered via the GCP standard).
 
-### Sprint 15 — Alert-history retention + archival
+### Sprint 15 — Alert-history retention + archival — **delivered**
 
 **Goal:** the store doesn't grow unboundedly. Operators can configure a retention window; the engine periodically prunes resolved-and-aged incidents (and their notifications + sub-states) and optionally streams them to an archive sink for cold storage.
 
@@ -302,7 +313,7 @@ Acceptance:
 - A rule that fires + resolves + ages past the retention window has its incident + notifications + sub-state removed from the store on the next prune tick.
 - Archive sink (when configured) receives the deleted incident payload before the row goes away. Tests fake both sinks via httptest / tempdir.
 
-### Sprint 16 — OpenTelemetry tracing
+### Sprint 16 — OpenTelemetry tracing — **delivered**
 
 **Goal:** operators can see what the engine is doing. The hot paths — rule evaluation, channel send, store query — emit OpenTelemetry spans. An optional OTLP exporter ships traces to any OTel-compatible backend (Jaeger, Honeycomb, Tempo, etc.).
 
@@ -318,7 +329,7 @@ Acceptance:
 - With OTLP enabled, a rule-firing event produces a parent span (eval) with children for dispatch + each notification + each store call. Span attributes include the rule ID + incident ID so an operator can trace a single alert end-to-end.
 - Coverage stays ≥ 90% on the new instrumentation code.
 
-### Sprint 17 — Per-user API tokens (replacing shared-token)
+### Sprint 17 — Per-user API tokens (replacing shared-token) — **delivered**
 
 **Goal:** the shared-token auth from PI 1 sprint 6 is adequate for v0.2 / v0.3 but not for multi-operator deployments. Replace it with per-user tokens stored in the database, with named scopes (read-only / full) and optional expiry. Sets up for v1.0's full RBAC.
 
@@ -335,7 +346,7 @@ Acceptance:
 - A token issued via the API authenticates for `/v1/*` requests. Revoking it via DELETE invalidates it on the next request. Bootstrap-env-var fallback continues to work for first-run + recovery.
 - Token plaintext is never logged or persisted to disk.
 
-### Sprint 18 — `v0.4.0` release prep + maintainer slack
+### Sprint 18 — `v0.4.0` release prep + maintainer slack — **delivered**
 
 **Goal:** cut `v0.4.0` (if user direction permits), refresh deferred Dependabot bumps + minor cleanups, regenerate screenshots that changed during PI 3 (likely OTel + API-tokens UI).
 
