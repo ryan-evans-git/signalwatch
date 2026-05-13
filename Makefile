@@ -6,7 +6,7 @@ NPM ?= npm
 # Local-dev parity with the CI pipeline. The CI workflow is the source of
 # truth — when a target diverges from CI, fix CI and update this Makefile.
 
-.PHONY: build web go test test-race test-pg test-mysql test-kafka test-sqs coverage coverage-html lint vet \
+.PHONY: build web go test test-race test-pg test-mysql test-kafka test-sqs test-rabbitmq coverage coverage-html lint vet \
         gosec govulncheck licenses verify clean tools
 
 build: web go
@@ -45,6 +45,12 @@ test-kafka:
 # via test-sqs.
 test-sqs:
 	$(GO) test -race -tags=integration ./internal/input/stream/sqs/...
+
+# Run the RabbitMQ streaming-input integration tests against rabbitmq:
+# 3.13-alpine via testcontainers-go. Same Docker requirement; CI runs
+# it on every PR via test-rabbitmq.
+test-rabbitmq:
+	$(GO) test -race -tags=integration ./internal/input/stream/rabbitmq/...
 
 # Coverage profile + summary. Matches the CI invocation exactly.
 coverage:

@@ -40,6 +40,11 @@ exclude:
     # MySQL store: same rationale as postgres above. Tests are tagged
     # `integration` and run via the test-mysql CI job.
     - internal/store/mysql/
+    # RabbitMQ production adapter file — pure passthroughs wrapping
+    # *amqp.Connection / *amqp.Channel so tests can swap the dialer.
+    # Exercisable only against a real broker; the test-rabbitmq CI job
+    # covers it via testcontainers-go.
+    - internal/input/stream/rabbitmq/realadapter.go
 
 # Regenerate cover.out via:
 #   go test -coverprofile=cover.out -coverpkg=./... -covermode=atomic ./...
