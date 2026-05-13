@@ -6,7 +6,7 @@ NPM ?= npm
 # Local-dev parity with the CI pipeline. The CI workflow is the source of
 # truth — when a target diverges from CI, fix CI and update this Makefile.
 
-.PHONY: build web go test test-race test-pg coverage coverage-html lint vet \
+.PHONY: build web go test test-race test-pg test-mysql coverage coverage-html lint vet \
         gosec govulncheck licenses verify clean tools
 
 build: web go
@@ -29,6 +29,11 @@ test-race:
 # changing internal/store/postgres; CI runs it on every PR.
 test-pg:
 	$(GO) test -race -tags=integration ./internal/store/postgres/...
+
+# Run the MySQL conformance suite. Same Docker / testcontainers-go
+# requirement; CI runs it on every PR via test-mysql.
+test-mysql:
+	$(GO) test -race -tags=integration ./internal/store/mysql/...
 
 # Coverage profile + summary. Matches the CI invocation exactly.
 coverage:

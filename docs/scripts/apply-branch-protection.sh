@@ -9,6 +9,7 @@ BRANCH="${BRANCH:-main}"
 REQUIRED_CHECKS='[
   "lint + test + coverage (go1.25.x)",
   "test (postgres integration)",
+  "test (mysql integration)",
   "gosec + govulncheck",
   "license policy (block GPL/AGPL/SSPL/BUSL/Elastic/Commons-Clause)",
   "trivy (filesystem)",
