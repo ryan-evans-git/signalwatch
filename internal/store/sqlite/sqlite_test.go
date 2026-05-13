@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ryan-evans-git/signalwatch/internal/auth"
 	"github.com/ryan-evans-git/signalwatch/internal/rule"
 	"github.com/ryan-evans-git/signalwatch/internal/store"
 	"github.com/ryan-evans-git/signalwatch/internal/store/sqlite"
@@ -232,6 +233,16 @@ func TestAllRepos_ErrorOnClosedDB(t *testing.T) {
 			_, err := st.IncidentSubStates().ListForIncident(ctx, "z")
 			return err
 		}},
+
+		{"APITokens.Create", func() error {
+			return st.APITokens().Create(ctx, &auth.Token{ID: "z", Name: "n", TokenHash: "h"})
+		}},
+		{"APITokens.Get", func() error { _, err := st.APITokens().Get(ctx, "z"); return err }},
+		{"APITokens.GetByHash", func() error { _, err := st.APITokens().GetByHash(ctx, "h"); return err }},
+		{"APITokens.List", func() error { _, err := st.APITokens().List(ctx); return err }},
+		{"APITokens.Revoke", func() error { return st.APITokens().Revoke(ctx, "z") }},
+		{"APITokens.TouchLastUsed", func() error { return st.APITokens().TouchLastUsed(ctx, "z", 0) }},
+		{"APITokens.Delete", func() error { return st.APITokens().Delete(ctx, "z") }},
 	}
 	for _, c := range calls {
 		t.Run(c.name, func(t *testing.T) {
@@ -250,5 +261,17 @@ func TestClose_NoError(t *testing.T) {
 	}
 	if err := st.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+}
+
+// APITokens.Create rejects empty TokenHash before reaching the DB. The
+// conformance suite only exercises the happy path, so cover the input-
+// validation guard here.
+func TestAPITokens_RejectsEmptyHash(t *testing.T) {
+	st := newStore(t)
+	if err := st.APITokens().Create(context.Background(), &auth.Token{
+		ID: "x", Name: "x",
+	}); err == nil {
+		t.Fatal("Create without TokenHash should fail")
 	}
 }

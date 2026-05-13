@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 
+	"github.com/ryan-evans-git/signalwatch/internal/auth"
 	"github.com/ryan-evans-git/signalwatch/internal/rule"
 	"github.com/ryan-evans-git/signalwatch/internal/subscriber"
 )
@@ -19,11 +20,38 @@ type Store interface {
 	Notifications() NotificationRepo
 	LiveStates() LiveStateRepo
 	IncidentSubStates() IncidentSubStateRepo
+	APITokens() APITokenRepo
 
 	// Migrate brings the store schema to the latest version.
 	Migrate(ctx context.Context) error
 	// Close releases store resources.
 	Close() error
+}
+
+// APITokenRepo persists per-user API tokens. The raw token secret is never
+// stored — only its SHA-256 hash. The repo is the single point where token
+// metadata lives so the api package can keep auth logic stateless.
+type APITokenRepo interface {
+	// Create inserts a token. The caller must populate every field
+	// including TokenHash; Create does not hash.
+	Create(ctx context.Context, t *auth.Token) error
+	// GetByHash returns the token whose TokenHash equals h, or (nil,
+	// nil) if no row matches. Used by the auth middleware.
+	GetByHash(ctx context.Context, h string) (*auth.Token, error)
+	// Get returns the token with the given id, or (nil, nil) if no row
+	// matches. Used by the management API.
+	Get(ctx context.Context, id string) (*auth.Token, error)
+	// List returns every token (revoked + active). Callers that want
+	// only the active set should filter.
+	List(ctx context.Context) ([]*auth.Token, error)
+	// Revoke marks the token revoked. Idempotent.
+	Revoke(ctx context.Context, id string) error
+	// TouchLastUsed records a most-recent-use timestamp. Errors are
+	// non-fatal to the auth path (the middleware logs + continues).
+	TouchLastUsed(ctx context.Context, id string, ts int64) error
+	// Delete removes the token row entirely. Useful for tests and for
+	// pruning long-expired rows.
+	Delete(ctx context.Context, id string) error
 }
 
 type RuleRepo interface {

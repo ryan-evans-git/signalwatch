@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ryan-evans-git/signalwatch/internal/auth"
 	"github.com/ryan-evans-git/signalwatch/internal/rule"
 	"github.com/ryan-evans-git/signalwatch/internal/store"
 	"github.com/ryan-evans-git/signalwatch/internal/subscriber"
@@ -70,6 +71,14 @@ func RunConformance(t *testing.T, factory Factory) {
 	t.Run("IncidentSubStates", func(t *testing.T) {
 		t.Run("UpsertGetList", func(t *testing.T) { testIncidentSubStatesUpsert(t, factory) })
 		t.Run("GetMissing", func(t *testing.T) { testIncidentSubStatesGetMissing(t, factory) })
+	})
+	t.Run("APITokens", func(t *testing.T) {
+		t.Run("CreateGetByHashList", func(t *testing.T) { testAPITokensBasic(t, factory) })
+		t.Run("GetMissingReturnsNilNil", func(t *testing.T) { testAPITokensMissing(t, factory) })
+		t.Run("RevokeAndDelete", func(t *testing.T) { testAPITokensRevokeDelete(t, factory) })
+		t.Run("TouchLastUsed", func(t *testing.T) { testAPITokensTouchLastUsed(t, factory) })
+		t.Run("DuplicateHashFails", func(t *testing.T) { testAPITokensDuplicateHash(t, factory) })
+		t.Run("ExpiresAtRoundTrips", func(t *testing.T) { testAPITokensExpiresAtRoundTrip(t, factory) })
 	})
 }
 
@@ -811,5 +820,150 @@ func testIncidentSubStatesGetMissing(t *testing.T, factory Factory) {
 	got, err := st.IncidentSubStates().Get(context.Background(), "x", "y")
 	if err != nil || got != nil {
 		t.Fatalf("Get missing: want (nil, nil), got (%+v, %v)", got, err)
+	}
+}
+
+// ---- API tokens ----
+
+func makeToken(id string) *auth.Token {
+	return &auth.Token{
+		ID:        id,
+		Name:      "token-" + id,
+		TokenHash: "hash-" + id,
+		Scopes:    []auth.Scope{auth.ScopeRead, auth.ScopeAdmin},
+	}
+}
+
+func testAPITokensBasic(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	repo := st.APITokens()
+
+	tok := makeToken("t1")
+	if err := repo.Create(ctx, tok); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := repo.GetByHash(ctx, "hash-t1")
+	if err != nil {
+		t.Fatalf("GetByHash: %v", err)
+	}
+	if got == nil || got.ID != "t1" || got.Name != "token-t1" {
+		t.Fatalf("GetByHash result: %+v", got)
+	}
+	if len(got.Scopes) != 2 {
+		t.Fatalf("Scopes round-trip: %+v", got.Scopes)
+	}
+	if got.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt should be auto-populated when not set")
+	}
+
+	byID, err := repo.Get(ctx, "t1")
+	if err != nil || byID == nil || byID.TokenHash != "hash-t1" {
+		t.Fatalf("Get by id: %+v %v", byID, err)
+	}
+
+	// second token to exercise List ordering.
+	if err := repo.Create(ctx, makeToken("t2")); err != nil {
+		t.Fatalf("Create t2: %v", err)
+	}
+	list, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("List len=%d, want 2", len(list))
+	}
+}
+
+func testAPITokensMissing(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	got, err := st.APITokens().GetByHash(ctx, "nope")
+	if err != nil || got != nil {
+		t.Fatalf("GetByHash missing: got (%+v, %v)", got, err)
+	}
+	got, err = st.APITokens().Get(ctx, "nope")
+	if err != nil || got != nil {
+		t.Fatalf("Get missing: got (%+v, %v)", got, err)
+	}
+}
+
+func testAPITokensRevokeDelete(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	repo := st.APITokens()
+
+	if err := repo.Create(ctx, makeToken("t-rev")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := repo.Revoke(ctx, "t-rev"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	got, _ := repo.Get(ctx, "t-rev")
+	if !got.Revoked {
+		t.Fatal("Revoke did not set revoked flag")
+	}
+	// Revoke idempotent.
+	if err := repo.Revoke(ctx, "t-rev"); err != nil {
+		t.Fatalf("Revoke again: %v", err)
+	}
+	if err := repo.Delete(ctx, "t-rev"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	got, _ = repo.Get(ctx, "t-rev")
+	if got != nil {
+		t.Fatalf("Get after Delete: %+v", got)
+	}
+}
+
+func testAPITokensTouchLastUsed(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	repo := st.APITokens()
+	if err := repo.Create(ctx, makeToken("t-touch")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	ts := time.Date(2026, 5, 13, 10, 11, 12, 0, time.UTC).UnixMilli()
+	if err := repo.TouchLastUsed(ctx, "t-touch", ts); err != nil {
+		t.Fatalf("TouchLastUsed: %v", err)
+	}
+	got, _ := repo.Get(ctx, "t-touch")
+	if got.LastUsedAt == nil || got.LastUsedAt.UnixMilli() != ts {
+		t.Fatalf("LastUsedAt: %+v want ms=%d", got.LastUsedAt, ts)
+	}
+}
+
+func testAPITokensDuplicateHash(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	repo := st.APITokens()
+	if err := repo.Create(ctx, &auth.Token{
+		ID: "t-a", Name: "a", TokenHash: "dup", Scopes: []auth.Scope{auth.ScopeRead},
+	}); err != nil {
+		t.Fatalf("Create A: %v", err)
+	}
+	if err := repo.Create(ctx, &auth.Token{
+		ID: "t-b", Name: "b", TokenHash: "dup", Scopes: []auth.Scope{auth.ScopeRead},
+	}); err == nil {
+		t.Fatal("Create with duplicate hash should fail")
+	}
+}
+
+func testAPITokensExpiresAtRoundTrip(t *testing.T, factory Factory) {
+	st := factory(t)
+	ctx := context.Background()
+	repo := st.APITokens()
+	exp := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	tok := &auth.Token{
+		ID: "t-exp", Name: "e", TokenHash: "hash-exp",
+		Scopes:    []auth.Scope{auth.ScopeRead},
+		ExpiresAt: &exp,
+	}
+	if err := repo.Create(ctx, tok); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, _ := repo.GetByHash(ctx, "hash-exp")
+	if got.ExpiresAt == nil || got.ExpiresAt.UnixMilli() != exp.UnixMilli() {
+		t.Fatalf("ExpiresAt: %+v want %s", got.ExpiresAt, exp)
 	}
 }

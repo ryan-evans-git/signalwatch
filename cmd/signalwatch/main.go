@@ -265,13 +265,27 @@ func run() error {
 	}
 
 	mux := http.NewServeMux()
-	// Shared bearer-token auth. Empty env var leaves /v1/* open, which
-	// matches the existing single-tenant localhost-binding default.
-	// Per-user RBAC is post-PI-1; see ROADMAP.md.
+	// Auth wiring. signalwatch supports two mechanisms simultaneously:
+	//   1. Legacy single shared token via SIGNALWATCH_API_TOKEN — back-
+	//      compat with v0.1-0.3 deployments. Treated as admin scope.
+	//   2. Per-user tokens stored in the api_tokens table — managed via
+	//      POST /v1/auth/tokens. Each token carries a scope set.
+	// Either or both can be active; auth is enforced whenever ANY
+	// mechanism is configured. Empty env var + token store still mounted
+	// (the store always exists once Migrate has run) means: if any token
+	// row exists in the DB, auth is required.
 	apiToken := os.Getenv("SIGNALWATCH_API_TOKEN")
-	api.Mount(mux, eng, ui.Handler(), api.WithAPIToken(apiToken))
-	if apiToken != "" {
-		logger.Info("signalwatch.auth_enabled", "scheme", "bearer")
+	mountOpts := []api.MountOption{
+		api.WithAPIToken(apiToken),
+		api.WithTokenStore(st.APITokens()),
+		api.WithAuthLogger(logger),
+	}
+	api.Mount(mux, eng, ui.Handler(), mountOpts...)
+	switch {
+	case apiToken != "":
+		logger.Info("signalwatch.auth_enabled", "scheme", "shared-token+per-user")
+	default:
+		logger.Info("signalwatch.auth_enabled", "scheme", "per-user-only")
 	}
 
 	addr := cfg.HTTP.Addr

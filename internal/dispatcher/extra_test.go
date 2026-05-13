@@ -283,6 +283,7 @@ func (f *faultStore) LiveStates() store.LiveStateRepo {
 func (f *faultStore) IncidentSubStates() store.IncidentSubStateRepo {
 	return &failIncidentSubStateRepo{inner: f.inner.IncidentSubStates(), failGet: f.failIncidentSubGet}
 }
+func (f *faultStore) APITokens() store.APITokenRepo     { return f.inner.APITokens() }
 func (f *faultStore) Migrate(ctx context.Context) error { return f.inner.Migrate(ctx) }
 func (f *faultStore) Close() error                      { return f.inner.Close() }
 

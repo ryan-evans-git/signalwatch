@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ryan-evans-git/signalwatch/engine"
+	"github.com/ryan-evans-git/signalwatch/internal/auth"
 	"github.com/ryan-evans-git/signalwatch/internal/rule"
 	"github.com/ryan-evans-git/signalwatch/internal/subscriber"
 )
@@ -38,36 +39,54 @@ func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler, opts ...Moun
 	}
 
 	h := &handlers{eng: eng, settings: s}
-	gate := func(fn http.HandlerFunc) http.HandlerFunc { return requireAuth(s.apiToken, fn) }
+
+	// readGate gates a route requiring at least ScopeRead. writeGate
+	// requires ScopeAdmin. Both compose requireAuth so auth failures
+	// short-circuit before the scope check runs.
+	readGate := func(fn http.HandlerFunc) http.HandlerFunc {
+		return requireAuth(&s, requireScope(auth.ScopeRead, fn))
+	}
+	writeGate := func(fn http.HandlerFunc) http.HandlerFunc {
+		return requireAuth(&s, requireScope(auth.ScopeAdmin, fn))
+	}
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /v1/auth-status", h.authStatus)
-	mux.HandleFunc("POST /v1/events", gate(h.postEvent))
+	mux.HandleFunc("POST /v1/events", writeGate(h.postEvent))
 
-	mux.HandleFunc("GET /v1/rules", gate(h.listRules))
-	mux.HandleFunc("POST /v1/rules", gate(h.createRule))
-	mux.HandleFunc("POST /v1/rules/validate", gate(h.validateRule))
-	mux.HandleFunc("GET /v1/rules/{id}", gate(h.getRule))
-	mux.HandleFunc("PUT /v1/rules/{id}", gate(h.updateRule))
-	mux.HandleFunc("DELETE /v1/rules/{id}", gate(h.deleteRule))
+	mux.HandleFunc("GET /v1/rules", readGate(h.listRules))
+	mux.HandleFunc("POST /v1/rules", writeGate(h.createRule))
+	mux.HandleFunc("POST /v1/rules/validate", writeGate(h.validateRule))
+	mux.HandleFunc("GET /v1/rules/{id}", readGate(h.getRule))
+	mux.HandleFunc("PUT /v1/rules/{id}", writeGate(h.updateRule))
+	mux.HandleFunc("DELETE /v1/rules/{id}", writeGate(h.deleteRule))
 
-	mux.HandleFunc("GET /v1/subscribers", gate(h.listSubscribers))
-	mux.HandleFunc("POST /v1/subscribers", gate(h.createSubscriber))
-	mux.HandleFunc("GET /v1/subscribers/{id}", gate(h.getSubscriber))
-	mux.HandleFunc("PUT /v1/subscribers/{id}", gate(h.updateSubscriber))
-	mux.HandleFunc("DELETE /v1/subscribers/{id}", gate(h.deleteSubscriber))
+	mux.HandleFunc("GET /v1/subscribers", readGate(h.listSubscribers))
+	mux.HandleFunc("POST /v1/subscribers", writeGate(h.createSubscriber))
+	mux.HandleFunc("GET /v1/subscribers/{id}", readGate(h.getSubscriber))
+	mux.HandleFunc("PUT /v1/subscribers/{id}", writeGate(h.updateSubscriber))
+	mux.HandleFunc("DELETE /v1/subscribers/{id}", writeGate(h.deleteSubscriber))
 
-	mux.HandleFunc("GET /v1/subscriptions", gate(h.listSubscriptions))
-	mux.HandleFunc("POST /v1/subscriptions", gate(h.createSubscription))
-	mux.HandleFunc("GET /v1/subscriptions/{id}", gate(h.getSubscription))
-	mux.HandleFunc("PUT /v1/subscriptions/{id}", gate(h.updateSubscription))
-	mux.HandleFunc("DELETE /v1/subscriptions/{id}", gate(h.deleteSubscription))
+	mux.HandleFunc("GET /v1/subscriptions", readGate(h.listSubscriptions))
+	mux.HandleFunc("POST /v1/subscriptions", writeGate(h.createSubscription))
+	mux.HandleFunc("GET /v1/subscriptions/{id}", readGate(h.getSubscription))
+	mux.HandleFunc("PUT /v1/subscriptions/{id}", writeGate(h.updateSubscription))
+	mux.HandleFunc("DELETE /v1/subscriptions/{id}", writeGate(h.deleteSubscription))
 
-	mux.HandleFunc("GET /v1/incidents", gate(h.listIncidents))
-	mux.HandleFunc("GET /v1/incidents/export", gate(h.exportIncidents))
-	mux.HandleFunc("GET /v1/incidents/{id}", gate(h.getIncident))
-	mux.HandleFunc("GET /v1/notifications", gate(h.listNotifications))
-	mux.HandleFunc("GET /v1/states", gate(h.listStates))
+	mux.HandleFunc("GET /v1/incidents", readGate(h.listIncidents))
+	mux.HandleFunc("GET /v1/incidents/export", readGate(h.exportIncidents))
+	mux.HandleFunc("GET /v1/incidents/{id}", readGate(h.getIncident))
+	mux.HandleFunc("GET /v1/notifications", readGate(h.listNotifications))
+	mux.HandleFunc("GET /v1/states", readGate(h.listStates))
+
+	// Per-user API-token management. Always admin-scoped. Routes are
+	// only mounted when a token store is configured — otherwise the
+	// endpoints would have nowhere to write to.
+	if s.tokens != nil {
+		mux.HandleFunc("GET /v1/auth/tokens", writeGate(h.listTokens))
+		mux.HandleFunc("POST /v1/auth/tokens", writeGate(h.issueToken))
+		mux.HandleFunc("DELETE /v1/auth/tokens/{id}", writeGate(h.revokeToken))
+	}
 
 	if ui != nil {
 		mux.Handle("/", ui)
@@ -84,7 +103,7 @@ type handlers struct {
 // show its login gate before issuing any /v1/* request.
 func (h *handlers) authStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"auth_required": h.settings.apiToken != "",
+		"auth_required": h.settings.authRequired(),
 	})
 }
 
