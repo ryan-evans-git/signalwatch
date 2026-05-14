@@ -98,6 +98,9 @@ func TestOpenAPI_DocumentedRoutesMatchMountedRoutes(t *testing.T) {
 		"GET /healthz",
 		"GET /openapi.yaml",
 		"GET /openapi.json",
+		"GET /swagger.json",
+		"GET /docs",
+		"GET /swagger",
 		"GET /v1/auth-status",
 	} {
 		mounted[r] = true
@@ -200,6 +203,37 @@ func TestOpenAPIJSONHandler_ParsesAsJSON(t *testing.T) {
 		if _, ok := got[k]; !ok {
 			t.Errorf("served JSON missing top-level key %q", k)
 		}
+	}
+}
+
+// TestDocsHandler_ServesSwaggerUI confirms the /docs route returns
+// an HTML page that references the canonical spec URL. We don't
+// validate the rendered DOM — the spec drift test is the
+// machine-readable contract — but we DO assert the loader points at
+// /openapi.yaml, because that's the contract Try-It-Out relies on.
+func TestDocsHandler_ServesSwaggerUI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(docsHTMLHandler))
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/docs")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if got, want := resp.Header.Get("Content-Type"), "text/html"; !strings.HasPrefix(got, want) {
+		t.Errorf("Content-Type: got %q, want prefix %q", got, want)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(body), "/openapi.yaml") {
+		t.Errorf("page does not reference /openapi.yaml — Try-It-Out will not work against the right spec")
+	}
+	if !strings.Contains(string(body), "swagger-ui") {
+		t.Errorf("page does not load the swagger-ui bundle")
 	}
 }
 

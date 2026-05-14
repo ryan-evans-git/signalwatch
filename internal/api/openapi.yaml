@@ -30,11 +30,12 @@ info:
     audit trail.
 
     The HTTP API is mounted at `/v1` on the same port that serves the
-    bundled React UI. `/healthz`, `/v1/auth-status`, and
-    `/openapi.yaml` / `/openapi.json` are always open; everything else
-    under `/v1/*` is gated when auth is configured (either via
-    `SIGNALWATCH_API_TOKEN` for the legacy shared-token mechanism, or
-    per-user tokens issued through `/v1/auth/tokens`).
+    bundled React UI. `/healthz`, `/v1/auth-status`, and the schema-
+    discovery routes (`/openapi.yaml`, `/openapi.json`, `/swagger.json`,
+    `/docs`, `/swagger`) are always open; everything else under `/v1/*`
+    is gated when auth is configured (either via `SIGNALWATCH_API_TOKEN`
+    for the legacy shared-token mechanism, or per-user tokens issued
+    through `/v1/auth/tokens`).
 
     The full architectural background — engine design, rule condition
     types, the dispatcher state machine, retention semantics — lives in
@@ -611,6 +612,61 @@ paths:
             application/json:
               schema:
                 type: object
+
+  /swagger.json:
+    get:
+      tags: [schema]
+      summary: Fetch this OpenAPI document (JSON, legacy alias)
+      description: |
+        Identical content to `/openapi.json`. Exposed because agents
+        and codegen tools still probe for the older `/swagger.json`
+        path. Always unauthenticated.
+      operationId: getSwaggerJSON
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 document, JSON-encoded.
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /docs:
+    get:
+      tags: [schema]
+      summary: Human-readable API documentation (Swagger UI)
+      description: |
+        Renders an embedded Swagger UI page against the spec at
+        `/openapi.yaml`. Always unauthenticated; the spec it loads
+        is also unauthenticated, but Try-It-Out against gated
+        operations will require a bearer token in the Authorize
+        dialog.
+      operationId: getDocsUI
+      security: []
+      responses:
+        '200':
+          description: HTML page that boots Swagger UI.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /swagger:
+    get:
+      tags: [schema]
+      summary: Human-readable API documentation (legacy alias)
+      description: |
+        Identical content to `/docs`. Exposed because some agents
+        and humans habitually visit `/swagger` first.
+      operationId: getSwaggerUI
+      security: []
+      responses:
+        '200':
+          description: HTML page that boots Swagger UI.
+          content:
+            text/html:
+              schema:
+                type: string
 
   /v1/auth-status:
     get:

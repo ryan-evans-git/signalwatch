@@ -6,6 +6,8 @@ signalwatch ships a strict OpenAPI 3.1 description of its HTTP API and serves it
 
 - **`GET /openapi.yaml`** — the canonical, version-controlled spec, served verbatim from the binary. Unauthenticated (like `/healthz`) so an MCP server can discover the schema before it has a credential.
 - **`GET /openapi.json`** — the same document, JSON-encoded.
+- **`GET /swagger.json`** — alias of `/openapi.json` for agents that probe the older convention first.
+- **`GET /docs`** (alias: `/swagger`) — embedded Swagger UI rendering the spec for humans, with a bearer-token Authorize dialog and live Try-It-Out.
 - The Go test suite (`internal/api/openapi_test.go`) enforces a few MCP-friendly invariants on every build:
   - Every operation has a unique `operationId` — bridges use this as the tool name.
   - Every operation has a `summary` and `tags` — bridges use these for tool documentation and grouping.

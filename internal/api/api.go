@@ -52,10 +52,19 @@ func Mount(mux *http.ServeMux, eng *engine.Engine, ui http.Handler, opts ...Moun
 
 	// Always-open routes. /healthz is a liveness probe; the openapi
 	// routes are discovery hooks for MCP adapters and codegen tools
-	// (they need the schema before they have any credential).
+	// (they need the schema before they have any credential); the
+	// docs route renders the spec for human readers.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /openapi.yaml", openapiYAMLHandler)
 	mux.HandleFunc("GET /openapi.json", openapiJSONHandler)
+	// /swagger.json is the older spec-discovery convention (pre-
+	// OpenAPI 3.x). Agents and codegen tools still probe for it.
+	mux.HandleFunc("GET /swagger.json", openapiJSONHandler)
+	// Human-facing Swagger UI rendering. /docs is the modern
+	// convention; /swagger is the older alias. Both serve the same
+	// embedded HTML.
+	mux.HandleFunc("GET /docs", docsHTMLHandler)
+	mux.HandleFunc("GET /swagger", docsHTMLHandler)
 	mux.HandleFunc("GET /v1/auth-status", h.authStatus)
 
 	// Gated routes — driven from the route table so tests can
