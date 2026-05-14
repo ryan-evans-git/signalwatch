@@ -94,6 +94,21 @@ function AppShell() {
         <div className="mx-auto max-w-6xl px-6 py-4 flex items-baseline gap-4">
           <h1 className="text-xl font-semibold tracking-tight">signalwatch</h1>
           <span className="text-xs uppercase text-slate-400 tracking-widest">pre-release</span>
+          <span className="flex-1" />
+          {/*
+            API Docs link sends humans to the embedded Swagger UI at
+            /docs. Anchor tag (not a tab) because /docs is a separate
+            page outside the SPA's hash-router.
+          */}
+          <a
+            href="/docs"
+            target="_blank"
+            rel="noopener"
+            className="text-sm text-slate-500 hover:text-slate-700 hover:underline"
+            title="OpenAPI 3.1 spec rendered with Swagger UI"
+          >
+            API docs ↗
+          </a>
         </div>
         <nav className="mx-auto max-w-6xl px-6 -mb-px flex gap-2">
           {TABS.map((t) => (

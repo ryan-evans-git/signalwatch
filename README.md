@@ -79,9 +79,17 @@ curl -sX POST -H "Authorization: Bearer $SIGNALWATCH_API_TOKEN" \
 
 signalwatch emits OpenTelemetry traces when `OTEL_TRACES_EXPORTER` is set. Spans cover engine submit, dispatcher tick + deliver, and every channel send. See [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 
-### MCP / agent integration
+### API documentation + MCP / agent integration
 
-Every `/v1/*` endpoint is described in `docs/openapi.yaml` (OpenAPI 3.1) and the running server publishes the same spec at `GET /openapi.yaml` and `GET /openapi.json` — both unauthenticated, so MCP adapters can discover the schema without a credential. Drift between the spec and the mounted routes is caught by `internal/api/openapi_test.go` on every build. Wiring an OpenAPI→MCP bridge (`openapi-mcp-server`, `mcp-openapi-proxy`, `openapi-to-mcp`) gives an agent typed tools for every operation. See [`docs/MCP.md`](./docs/MCP.md).
+Every `/v1/*` endpoint is described in `docs/openapi.yaml` (OpenAPI 3.1). The running server publishes the spec and renders it for humans on the same port:
+
+| Route | Audience | What it serves |
+|---|---|---|
+| `GET /docs` (alias: `/swagger`) | humans | Embedded Swagger UI rendering the spec, with bearer-token Authorize dialog and Try-It-Out |
+| `GET /openapi.yaml` | agents / codegen | Canonical spec (YAML) |
+| `GET /openapi.json` (alias: `/swagger.json`) | agents / codegen | Canonical spec (JSON) |
+
+All four are unauthenticated, so MCP adapters can discover the schema without a credential. Drift between the spec and the mounted routes is caught by `internal/api/openapi_test.go` on every build. Wiring an OpenAPI→MCP bridge (`openapi-mcp-server`, `mcp-openapi-proxy`, `openapi-to-mcp`) gives an agent typed tools for every operation. See [`docs/MCP.md`](./docs/MCP.md).
 
 ### Screenshots
 

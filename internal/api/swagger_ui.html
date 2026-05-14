@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>signalwatch — API documentation</title>
+    <!--
+      The swagger-ui-dist version is intentionally pinned. Bump the
+      query string when you upgrade and re-verify the bundle works
+      against the spec at /openapi.yaml. Operators running with strict
+      CSP / air-gapped should vendor swagger-ui-dist locally and edit
+      this file accordingly; ship-defaults favor the CDN path so the
+      single-binary build stays small.
+    -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.20.1/swagger-ui.css"
+    />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>" />
+    <style>
+      body { margin: 0; background: #fafafa; }
+      .topbar { display: none; } /* swagger-ui's default search bar — we ship one spec, no need */
+      .info-bar {
+        font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        padding: 12px 24px;
+        background: #1e293b;
+        color: #f8fafc;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .info-bar a { color: #93c5fd; text-decoration: none; }
+      .info-bar a:hover { text-decoration: underline; }
+      .info-bar .pill {
+        padding: 2px 8px;
+        background: #334155;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Custom header strip with the spec URLs an agent or human is most
+      likely to want next. /openapi.yaml is the canonical source; the
+      other two are conventional aliases. The bundled SPA lives at /.
+    -->
+    <div class="info-bar">
+      <strong>signalwatch API</strong>
+      <span class="pill">OpenAPI 3.1</span>
+      <a href="/openapi.yaml">openapi.yaml</a>
+      <a href="/openapi.json">openapi.json</a>
+      <a href="/swagger.json">swagger.json</a>
+      <a href="/">↑ UI</a>
+    </div>
+
+    <div id="swagger-ui"></div>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.20.1/swagger-ui-bundle.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.20.1/swagger-ui-standalone-preset.js"
+      crossorigin="anonymous"
+    ></script>
+    <script>
+      // The spec is fetched from the same origin so Try-It-Out works
+      // against the running server without CORS gymnastics.
+      window.ui = SwaggerUIBundle({
+        url: "/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        // Default-expand the auth section since most users will
+        // need to paste a bearer token before any operation works.
+        docExpansion: "list",
+        // Show the security indicator on each operation row.
+        displayOperationId: true,
+        // Standalone layout puts the operation list in a single
+        // pane (matches the rest of the bundled UI's vibe).
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset,
+        ],
+        layout: "StandaloneLayout",
+        // Persist the bearer-token entered in the Authorize dialog
+        // across page reloads, so the human exploring the API does
+        // not have to repaste it every time.
+        persistAuthorization: true,
+      });
+    </script>
+  </body>
+</html>
