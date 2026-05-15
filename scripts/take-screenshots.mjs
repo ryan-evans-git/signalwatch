@@ -31,6 +31,10 @@ mkdirSync(OUT_DIR, { recursive: true });
 const SHOTS = [
   { name: "rules", tab: "Rules" },
   { name: "subscribers", tab: "Subscribers" },
+  // Subscriptions is its own top-level tab; the screenshot surfaces
+  // the dwell/repeat/resolve columns plus the Mode pill (one-shot vs
+  // recurring) added in the post-v0.4 one-shot-subscriptions feature.
+  { name: "subscriptions", tab: "Subscriptions" },
   { name: "states", tab: "Live State" },
   { name: "incidents", tab: "Incidents" },
 ];
@@ -47,6 +51,22 @@ try {
     viewport: { width: 1280, height: 800 },
     deviceScaleFactor: 2, // crisp PNGs on retina
   });
+  // If the driver script set SW_TOKEN, prime the UI's localStorage so
+  // the SPA renders authenticated and we capture the data tabs rather
+  // than the login gate. addInitScript runs in every fresh document
+  // BEFORE any of the SPA's own JS, so the auth helper sees the
+  // token on first read.
+  const swToken = process.env.SW_TOKEN ?? "";
+  if (swToken) {
+    await context.addInitScript((t) => {
+      try {
+        window.localStorage.setItem("signalwatch.api_token", t);
+      } catch {
+        // Some test contexts disable storage; fall through and let
+        // the SPA render its login gate.
+      }
+    }, swToken);
+  }
   const page = await context.newPage();
 
   for (const shot of SHOTS) {

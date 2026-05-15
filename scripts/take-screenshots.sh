@@ -45,6 +45,15 @@ store:
   driver: sqlite
   dsn: file:${DB}?_pragma=journal_mode(WAL)
 EOF
+# As of sprint 17, the cmd/signalwatch wiring always mounts the
+# per-user token store, which forces auth on every /v1/* request even
+# when SIGNALWATCH_API_TOKEN is unset. We mint a fixed shared token
+# for this ephemeral process so the seed + UI can authenticate, and
+# inject the same token into the UI's localStorage so screenshots
+# capture the data tabs (not the login gate).
+SW_TOKEN="screenshot-only-token-not-a-real-secret"
+export SIGNALWATCH_API_TOKEN="$SW_TOKEN"
+export SW_TOKEN  # consumed by the Playwright script below
 ./bin/signalwatch --config "$DB.config" >/tmp/sw-screenshots.log 2>&1 &
 echo $! > "$PID_FILE"
 
@@ -63,7 +72,10 @@ fi
 
 echo "→ seeding fixture data"
 post() {
-  curl -sf -H 'Content-Type: application/json' -X POST -d "$2" "http://127.0.0.1:${PORT}$1" >/dev/null
+  curl -sf \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${SW_TOKEN}" \
+    -X POST -d "$2" "http://127.0.0.1:${PORT}$1" >/dev/null
 }
 
 post /v1/rules '{
@@ -88,6 +100,9 @@ post /v1/subscribers '{"id":"s-billing","name":"Billing team","channels":[{"chan
 
 post /v1/subscriptions '{"id":"subscr-oncall-cpu","subscriber_id":"s-oncall","rule_id":"r-cpu","dwell_seconds":120,"repeat_interval_seconds":900,"notify_on_resolve":true}'
 post /v1/subscriptions '{"id":"subscr-billing-orders","subscriber_id":"s-billing","rule_id":"r-orders","dwell_seconds":0,"repeat_interval_seconds":0,"notify_on_resolve":true}'
+# A one-shot subscription so the Subscriptions screenshot visually
+# distinguishes "one-shot" from "recurring" via the Mode pill.
+post /v1/subscriptions '{"id":"subscr-oncall-orders-once","subscriber_id":"s-oncall","rule_id":"r-orders","dwell_seconds":0,"repeat_interval_seconds":0,"notify_on_resolve":false,"one_shot":true}'
 
 # Push enough events to open + close an incident so the live-state
 # and incidents tabs show data.

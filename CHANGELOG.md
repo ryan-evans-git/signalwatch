@@ -4,6 +4,10 @@ All notable changes to signalwatch are recorded here. Format adheres to [Keep a 
 
 ## [Unreleased]
 
+### Changed
+
+- **Refreshed README screenshots.** All six PNGs regenerated against post-v0.4 `main`: header now shows the new "API docs ↗" link; a new `subscriptions.png` joins the grid surfacing the one-shot Mode pill alongside the recurring rows. Seed data extended in `scripts/take-screenshots.sh` to include a one-shot subscription so the pill states are visually contrasted. Screenshot driver now seeds against `SIGNALWATCH_API_TOKEN` and primes the SPA's `localStorage` so the captured pages show the data tabs (the per-user token store added in sprint 17 caused every `/v1/*` request to require auth).
+
 ### Added
 
 - **Embedded Swagger UI at `/docs` (plus discovery aliases).** New `GET /docs` route renders a pinned Swagger UI bundle against the in-binary OpenAPI spec at `/openapi.yaml`. The Authorize dialog supports persisting a bearer token across reloads so Try-It-Out works against gated routes. Aliased at `GET /swagger` for habit-driven users. Spec discovery now also responds at `GET /swagger.json` (older convention some agents probe for). The bundled UI gains an "API docs ↗" link in the header. New operations are documented in the spec itself so the drift test keeps the route list honest.
